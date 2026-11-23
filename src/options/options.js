@@ -3,8 +3,9 @@ import { icon, LOGO } from '../shared/icons.js';
 import { $, $$, esc, hydrateIcons, toast } from '../shared/ui.js';
 import { getSettings, saveSettings, applyTheme, onSettingsChanged } from '../shared/settings.js';
 import { buildFilename, formatBytes } from '../shared/media.js';
+import { SKINS, resolveSkin } from '../shared/skins.js';
 
-const TOGGLES = ['askWhereToSave', 'notifyOnComplete', 'detectVideo', 'detectAudio', 'detectStreams', 'floatingButton'];
+const TOGGLES = ['pureBlack', 'askWhereToSave', 'notifyOnComplete', 'detectVideo', 'detectAudio', 'detectStreams', 'floatingButton'];
 let s;
 let savedTimer;
 
@@ -12,14 +13,14 @@ init();
 
 async function init() {
   s = await getSettings();
-  applyTheme(s.theme);
+  applyTheme(s);
   $('#logo').outerHTML = LOGO;
   hydrateIcons();
   $('#version').textContent = `v${api.runtime.getManifest().version}`;
   fill();
   bind();
-  onSettingsChanged((next) => { s = next; applyTheme(s.theme); renderSites(); });
-  matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => applyTheme(s.theme));
+  onSettingsChanged((next) => { s = next; applyTheme(s); renderSites(); });
+  matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => applyTheme(s));
   checkPermission();
   historyInfo();
 }
@@ -34,6 +35,41 @@ function fill() {
   outputs();
   preview();
   renderSites();
+  renderSkins();
+}
+
+function skinCard(id, name, tagline) {
+  const sk = resolveSkin({ ...s, skin: id }, 'dark');
+  const bg = sk.neutrals?.['--bg'] || '#0F1118';
+  const [a1, a2, a3] = sk.accents;
+  const k = sk.kinds;
+  return `<div class="skin" role="radio" tabindex="0" data-skin="${id}" aria-checked="${s.skin === id}"
+      style="--pv-bg:${bg};--pv-1:${a1};--pv-2:${a2};--pv-3:${a3}">
+    <div class="sw">
+      <span class="pv-bar"></span>
+      <span class="pv-row"><span class="pv-btn"></span><span class="pv-dot" style="background:${k.video}"></span><span class="pv-dot" style="background:${k.audio}"></span><span class="pv-dot" style="background:${k.stream}"></span></span>
+    </div>
+    <div class="meta"><div><b>${esc(name)}</b><small>${esc(tagline)}</small></div><span class="tick">${icon('check', 12)}</span></div>
+    ${id === 'custom' ? `<input type="color" id="accent" value="${esc(s.accent)}" title="Pick your accent color" aria-label="Accent color">` : ''}
+  </div>`;
+}
+
+function renderSkins() {
+  const cards = Object.entries(SKINS).map(([id, sk]) => skinCard(id, sk.name, sk.tagline));
+  cards.push(skinCard('custom', 'Custom', 'Your own accent'));
+  $('#skins').innerHTML = cards.join('');
+  for (const el of $$('#skins .skin')) {
+    const pick = () => {
+      if (s.skin === el.dataset.skin) return;
+      save({ skin: el.dataset.skin }).then(() => { applyTheme(s); renderSkins(); });
+    };
+    el.addEventListener('click', (e) => { if (e.target.id !== 'accent') pick(); });
+    el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } });
+  }
+  const accent = $('#accent');
+  // Live preview while dragging, save when the picker closes.
+  accent.addEventListener('input', () => applyTheme({ ...s, skin: 'custom', accent: accent.value }));
+  accent.addEventListener('change', () => save({ skin: 'custom', accent: accent.value }).then(() => { applyTheme(s); renderSkins(); }));
 }
 
 function outputs() {
@@ -66,7 +102,7 @@ function bind() {
     b.onclick = async () => {
       for (const x of $$('#theme button')) x.setAttribute('aria-pressed', String(x === b));
       await save({ theme: b.dataset.v });
-      applyTheme(b.dataset.v);
+      applyTheme(s);
     };
   }
   for (const id of TOGGLES) $(`#${id}`).onchange = (e) => save({ [id]: e.target.checked });

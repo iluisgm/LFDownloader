@@ -1,7 +1,11 @@
 import { api } from './api.js';
+import { resolveSkin, paintSkin } from './skins.js';
 
 export const DEFAULT_SETTINGS = {
   theme: 'system', // 'system' | 'dark' | 'light'
+  skin: 'aurora', // see shared/skins.js, or 'custom'
+  accent: '#E5172F', // used by the custom skin
+  pureBlack: false, // true-black backgrounds in dark mode (OLED)
   folder: 'LFDownloader', // sub-folder inside the browser's download folder
   askWhereToSave: false,
   filenameTemplate: '{title} - {quality}',
@@ -32,10 +36,13 @@ export function onSettingsChanged(cb) {
   });
 }
 
-/** Apply the theme setting to a document (`data-theme` on <html>). */
-export function applyTheme(theme, doc = document) {
+/** Apply theme + skin settings to a document (`data-theme` and CSS variables on <html>). */
+export function applyTheme(settings, doc = document) {
+  const s = typeof settings === 'string' ? { theme: settings } : settings || {};
+  const theme = s.theme || 'system';
   const resolved = theme === 'system'
     ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
     : theme;
   doc.documentElement.dataset.theme = resolved;
+  paintSkin(doc.documentElement, resolveSkin(s, resolved));
 }

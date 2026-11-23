@@ -30,6 +30,17 @@ export function start(port = PORT) {
       path = path.replace('/protected/', '/media/');
     }
 
+    // /hotlink-html/* also needs the Referer, but (like many video CDNs) answers
+    // a request without it with a normal-looking 200 HTML page, not an error.
+    if (path.startsWith('/hotlink-html/')) {
+      const ref = req.headers.referer || '';
+      if (!ref.startsWith(`http://localhost:${port}/`)) {
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        return res.end('<!doctype html><html><body><h1>Hotlinking is not allowed</h1></body></html>');
+      }
+      path = path.replace('/hotlink-html/', '/media/');
+    }
+
     const file = normalize(join(root, path));
     if (!file.startsWith(root)) { res.writeHead(400); return res.end(); }
     let st;

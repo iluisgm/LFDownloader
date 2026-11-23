@@ -1,19 +1,23 @@
 import { api, call } from '../shared/api.js';
 import { icon, LOGO } from '../shared/icons.js';
 import { $, $$, esc, toast, hydrateIcons } from '../shared/ui.js';
-import { getSettings, applyTheme } from '../shared/settings.js';
+import { getSettings, applyTheme, onSettingsChanged } from '../shared/settings.js';
 import { formatBytes, formatDuration, formatBitrate, hostOf, cleanTitle } from '../shared/media.js';
 
 const params = new URLSearchParams(location.search);
 const MODE = params.get('mode') === 'panel' ? 'panel' : 'popup';
 const FOCUS = params.get('focus') || '';
+const VIEW = params.get('view') || '';
+const AUTO_SCAN = params.get('scan') === '1';
 
 const state = {
   tabId: null,
   tab: null,
   items: [],
-  filter: 'all',
+  filter: VIEW === 'images' ? 'image' : 'all',
   selected: new Map(), // itemId -> variantId
+  imgSel: new Set(), // selected image ids
+  imgScan: null, // { state, done, total, found }
   showEarlier: false,
   focusDone: false,
 };
@@ -27,7 +31,8 @@ init().catch((e) => {
 
 async function init() {
   const settings = await getSettings();
-  applyTheme(settings.theme);
+  applyTheme(settings);
+  onSettingsChanged(applyTheme);
   document.body.classList.toggle('panel', MODE === 'panel');
   $('#logo').outerHTML = LOGO;
   hydrateIcons();
@@ -49,13 +54,23 @@ async function init() {
   $('#page-host').textContent = hostOf(state.tab?.url || '') || cleanTitle(state.tab?.title || '') || ' ';
 
   bindChrome();
+  ({ [`imgscan:${state.tabId}`]: state.imgScan = null } = await api.storage.session.get(`imgscan:${state.tabId}`));
   await refresh();
   renderActivity();
+  if (AUTO_SCAN) startImageScan();
 
   api.storage.onChanged.addListener((changes, area) => {
     if (area === 'session' && changes[`tab:${state.tabId}`]) {
       state.items = changes[`tab:${state.tabId}`].newValue?.items || [];
       render();
+    }
+    if (area === 'session' && changes[`imgscan:${state.tabId}`]) {
+      state.imgScan = changes[`imgscan:${state.tabId}`].newValue || null;
+      renderImageProgress();
+      if (state.imgScan?.state === 'done' && state.filter === 'image') {
+        const n = state.imgScan.found || 0;
+        toast(n ? `Found ${n} full-size image${n > 1 ? 's' : ''}` : 'No full-size images found');
+      }
     }
     if (area === 'local' && changes.downloads) renderActivity(changes.downloads.newValue);
   });
@@ -75,17 +90,26 @@ function bindChrome() {
   $('#btn-close').onclick = closePanel;
   $('#btn-scan').onclick = rescan;
   $('#btn-scan-empty').onclick = rescan;
+  $('#btn-images').onclick = () => { setFilter('image'); startImageScan(); };
+  $('#btn-images-empty').onclick = () => { setFilter('image'); startImageScan(); };
+  $('#img-scan-first').onclick = startImageScan;
+  $('#img-rescan').onclick = startImageScan;
+  $('#img-stop').onclick = () => api.tabs.sendMessage(state.tabId, { type: 'lfd:images-stop' }, { frameId: 0 }).catch(() => {});
+  $('#img-selall').onclick = toggleSelectAll;
+  $('#img-download').onclick = downloadImages;
+  $('#img-clear').onclick = async () => { state.imgSel.clear(); await call('images:clear', { tabId: state.tabId }); };
 
-  for (const b of $$('#filters [data-filter]')) {
-    b.onclick = () => {
-      state.filter = b.dataset.filter;
-      for (const x of $$('#filters [data-filter]')) x.setAttribute('aria-pressed', String(x === b));
-      render();
-    };
-  }
+  for (const b of $$('#filters [data-filter]')) b.onclick = () => setFilter(b.dataset.filter);
+  setFilter(state.filter, false);
   document.addEventListener('click', (e) => {
     if (!e.target.closest('.menu, [data-act="more"]')) closeMenus();
   });
+}
+
+function setFilter(f, draw = true) {
+  state.filter = f;
+  for (const x of $$('#filters [data-filter]')) x.setAttribute('aria-pressed', String(x.dataset.filter === f));
+  if (draw) render();
 }
 
 function closePanel() {
@@ -104,7 +128,7 @@ async function rescan() {
     await api.tabs.sendMessage(state.tabId, { type: 'lfd:rescan' });
   } catch {
     try {
-      await api.scripting.executeScript({ target: { tabId: state.tabId, allFrames: true }, files: ['content/content.js'] });
+      await api.scripting.executeScript({ target: { tabId: state.tabId, allFrames: true }, files: ['content/extract.js', 'content/content.js'] });
       await api.tabs.sendMessage(state.tabId, { type: 'lfd:rescan' });
     } catch { /* restricted page */ }
   }
@@ -137,16 +161,22 @@ function isCurrent(item) {
 
 function render() {
   const restricted = state.tab?.url && !/^(https?|file):/.test(state.tab.url) && !state.items.length;
-  const counts = { all: state.items.length, video: 0, audio: 0, stream: 0 };
-  for (const i of state.items) counts[i.kind] = (counts[i.kind] || 0) + 1;
+  const images = state.items.filter((i) => i.kind === 'image');
+  const media = state.items.filter((i) => i.kind !== 'image');
+  const counts = { all: media.length, video: 0, audio: 0, stream: 0, image: images.length };
+  for (const i of media) counts[i.kind] = (counts[i.kind] || 0) + 1;
   for (const el of $$('[data-count]')) el.textContent = counts[el.dataset.count] || '';
 
-  $('#filters').hidden = state.items.length < 2;
-  $('#restricted').hidden = !restricted;
-  $('#empty').hidden = restricted || state.items.length > 0;
+  const imageView = state.filter === 'image';
+  $('#filters').hidden = !imageView && !images.length && media.length < 2;
+  $('#restricted').hidden = !restricted || imageView;
+  $('#empty').hidden = restricted || imageView || state.items.length > 0;
   $('#btn-scan').hidden = restricted;
+  $('#images-view').hidden = !imageView;
+  $('#list').hidden = imageView;
+  if (imageView) return renderImages(images);
 
-  const visible = state.items
+  const visible = media
     .filter((i) => state.filter === 'all' || i.kind === state.filter)
     // Streams and bigger files first: they are almost always "the" video.
     .sort((a, b) => rank(b) - rank(a) || b.detectedAt - a.detectedAt);
@@ -156,6 +186,7 @@ function render() {
   const list = $('#list');
   const scroll = list.scrollTop;
   const html = [];
+  if (state.filter === 'all' && images.length) html.push(imageSummaryHtml(images));
   html.push(...current.map(cardHtml));
   if (earlier.length) {
     html.push(`<div class="group-label">Earlier in this tab · ${earlier.length}<button data-act="toggle-earlier">${state.showEarlier ? 'Hide' : 'Show'}</button></div>`);
@@ -164,6 +195,8 @@ function render() {
   list.innerHTML = html.join('');
   list.scrollTop = scroll;
   bindCards();
+  const sum = $('.img-summary', list);
+  if (sum) sum.onclick = () => setFilter('image');
 
   if (FOCUS && !state.focusDone) {
     const el = list.querySelector(`[data-key="${CSS.escape(FOCUS)}"]`);
@@ -365,4 +398,121 @@ async function renderActivity(list) {
   $('#activity-text').textContent = active.length
     ? `${active.length} download${active.length > 1 ? 's' : ''} in progress`
     : 'No active downloads';
+}
+
+// ───────────────────────── images ─────────────────────────
+
+function imageSummaryHtml(images) {
+  const thumbs = images.slice(0, 3).map((i) => `<img src="${esc(i.thumb || i.url)}" alt="" loading="lazy">`).join('');
+  return `<button class="img-summary">
+    <span class="stack">${thumbs}</span>
+    <span><b>${images.length} image${images.length > 1 ? 's' : ''} found</b><small>Full-size pictures from this page</small></span>
+    ${icon('chevron', 16)}
+  </button>`;
+}
+
+async function startImageScan() {
+  setFilter('image');
+  state.imgScan = { state: 'running', done: 0, total: 0, found: 0 };
+  renderImageProgress();
+  const msg = { type: 'lfd:images-scan' };
+  try {
+    await api.tabs.sendMessage(state.tabId, msg, { frameId: 0 });
+  } catch {
+    try {
+      await api.scripting.executeScript({ target: { tabId: state.tabId, allFrames: true }, files: ['content/extract.js', 'content/content.js'] });
+      await api.tabs.sendMessage(state.tabId, msg, { frameId: 0 });
+    } catch {
+      state.imgScan = null;
+      renderImageProgress();
+      toast("This page can't be scanned", { error: true });
+    }
+  }
+}
+
+function renderImageProgress() {
+  const s = state.imgScan;
+  const running = s?.state === 'running';
+  $('#img-progress').hidden = !running;
+  if (running) {
+    const pct = s.total ? (s.done / s.total) * 100 : 0;
+    $('#img-progress-bar').style.width = `${pct}%`;
+    $('#img-progress-bar').parentElement.classList.toggle('indeterminate', !s.total);
+    $('#img-progress-text').textContent = s.total
+      ? `Following thumbnails… ${s.done}/${s.total}`
+      : 'Looking for thumbnails…';
+  }
+  if (state.filter === 'image') renderImages(state.items.filter((i) => i.kind === 'image'));
+}
+
+function dims(i) {
+  return i.width && i.height ? `${i.width}×${i.height}` : '';
+}
+
+function renderImages(images) {
+  for (const id of [...state.imgSel]) if (!images.some((i) => i.id === id)) state.imgSel.delete(id);
+  const running = state.imgScan?.state === 'running';
+  const grid = $('#img-grid');
+  $('#img-empty').hidden = images.length > 0 || running;
+  $('#img-actions').hidden = !images.length;
+  $('.img-bar').hidden = !images.length;
+  $('#img-count').textContent = state.imgSel.size
+    ? `${state.imgSel.size} of ${images.length} selected`
+    : `${images.length} image${images.length === 1 ? '' : 's'}`;
+  const all = images.length && state.imgSel.size === images.length;
+  $('#img-selall').setAttribute('aria-checked', all ? 'true' : state.imgSel.size ? 'mixed' : 'false');
+  const label = $('#img-download span');
+  label.textContent = state.imgSel.size ? `Download ${state.imgSel.size} selected` : `Download all ${images.length}`;
+  grid.classList.toggle('selecting', state.imgSel.size > 0);
+
+  // Only append new tiles so thumbnails don't reload while a scan streams in.
+  const have = new Map($$('.tile', grid).map((t) => [t.dataset.id, t]));
+  for (const [id, el] of have) if (!images.some((i) => i.id === id)) el.remove();
+  for (const i of images) {
+    let el = have.get(i.id);
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'tile';
+      el.dataset.id = i.id;
+      el.setAttribute('role', 'checkbox');
+      el.tabIndex = 0;
+      el.title = i.name || i.url;
+      el.innerHTML = `<img src="${esc(i.thumb || i.url)}" alt="" loading="lazy" decoding="async">
+        <span class="cb">${icon('check', 12)}</span>
+        <button class="open" title="Open full image">${icon('external', 13)}</button>
+        ${dims(i) ? `<span class="dim">${esc(dims(i))}</span>` : ''}`;
+      el.querySelector('img').onerror = (e) => { e.target.replaceWith(Object.assign(document.createElement('span'), { className: 'broken', innerHTML: icon('image', 20) })); };
+      el.querySelector('.open').onclick = (e) => { e.stopPropagation(); api.tabs.create({ url: i.url }); };
+      const toggle = () => {
+        if (state.imgSel.has(i.id)) state.imgSel.delete(i.id); else state.imgSel.add(i.id);
+        renderImages(state.items.filter((x) => x.kind === 'image'));
+      };
+      el.onclick = toggle;
+      el.onkeydown = (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggle(); } };
+      grid.append(el);
+    }
+    el.setAttribute('aria-checked', String(state.imgSel.has(i.id)));
+  }
+}
+
+function toggleSelectAll() {
+  const images = state.items.filter((i) => i.kind === 'image');
+  if (state.imgSel.size === images.length) state.imgSel.clear();
+  else for (const i of images) state.imgSel.add(i.id);
+  renderImages(images);
+}
+
+async function downloadImages() {
+  const btn = $('#img-download');
+  btn.disabled = true;
+  try {
+    const res = await call('images:download', { tabId: state.tabId, ids: [...state.imgSel] });
+    toast(`Saving ${res.total} image${res.total > 1 ? 's' : ''} to ${res.folder}`, { ms: 3400 });
+    state.imgSel.clear();
+    renderImages(state.items.filter((i) => i.kind === 'image'));
+  } catch (e) {
+    toast(e.message, { error: true });
+  } finally {
+    btn.disabled = false;
+  }
 }

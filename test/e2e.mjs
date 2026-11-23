@@ -112,7 +112,7 @@ try {
     const v = label ? it.variants.find((x) => x.label === label) : null;
     return popup.evaluate((tabId, id, variantId) => chrome.runtime.sendMessage({ type: 'media:download', tabId, id, variantId }), tabId, it.id, v?.id);
   };
-  for (const [m, l] of [['sample.mp4'], ['hls/master.m3u8', '720p'], ['hls-aes'], ['hls-fmp4'], ['hls-split/master', '720p']]) {
+  for (const [m, l] of [['sample.mp4'], ['hls/master.m3u8', '720p'], ['hls-aes'], ['hls-fmp4'], ['hls-split/master', '720p'], ['protected/song.mp3'], ['hotlink-html/sample.mp4']]) {
     const r = await dlItem(m, l);
     check(r?.ok, `download started: ${m} ${l || ''}${r?.error ? ` (${r.error})` : ''}`);
   }
@@ -137,8 +137,10 @@ try {
         await mgr.screenshot({ path: join(shots, 'manager-active.png') });
       }
     }
-    if (recs.length >= 7 && recs.every((r) => !['queued', 'downloading', 'saving'].includes(r.status))) break;
+    if (recs.length >= 9 && recs.every((r) => !['queued', 'downloading', 'saving'].includes(r.status))) break;
   }
+  check(recs.find((r) => r.url?.includes('/hotlink-html/'))?.type === 'fetch', 'host that answers with a web page was detected and fetched with the Referer');
+  check(recs.find((r) => r.url?.includes('/protected/song.mp3'))?.type === 'fetch', 'hotlink-protected file fell back to a fetch with the page Referer');
   for (const r of recs) check(r.status === 'completed', `${r.type} ${r.filename} → ${r.status}${r.error ? ` (${r.error})` : ''}`);
 
   const mgr = (await browser.pages()).find((p) => p.url().includes('manager.html'));
@@ -163,7 +165,7 @@ try {
     } catch { /* invalid */ }
     check(Math.abs(dur - 12) < 1.5, `ffprobe ${f.replace(dl, '')} → ${dur.toFixed(2)}s, ${(statSync(f).size / 1e6).toFixed(2)} MB`);
   }
-  check(files.length >= 8, `${files.length} files on disk`);
+  check(files.length >= 10, `${files.length} files on disk`);
 
   // Settings page screenshot.
   const opt = await browser.newPage();

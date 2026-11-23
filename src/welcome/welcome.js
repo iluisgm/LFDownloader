@@ -4,7 +4,7 @@ import { $, hydrateIcons, toast } from '../shared/ui.js';
 import { getSettings, applyTheme } from '../shared/settings.js';
 
 (async () => {
-  applyTheme((await getSettings()).theme);
+  applyTheme(await getSettings());
   $('#logo').outerHTML = LOGO;
   hydrateIcons();
 

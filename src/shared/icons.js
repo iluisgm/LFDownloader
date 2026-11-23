@@ -25,6 +25,10 @@ const P = {
   live: '<circle cx="12" cy="12" r="3" fill="currentColor"/><path d="M7.05 16.95a7 7 0 0 1 0-9.9M16.95 7.05a7 7 0 0 1 0 9.9"/>',
   alert: '<path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 2.4 17.6A2 2 0 0 0 4.1 20.6h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/>',
   sparkle: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8"/>',
+  image: '<rect x="3.5" y="4.5" width="17" height="15" rx="3"/><circle cx="9" cy="10" r="1.8"/><path d="m20.5 15.5-4.8-4.8a1.5 1.5 0 0 0-2.1 0L5 19.4"/>',
+  images: '<rect x="7" y="3" width="14" height="14" rx="2.5"/><path d="M17 21H5.5A2.5 2.5 0 0 1 3 18.5V7"/><circle cx="12" cy="8" r="1.5"/><path d="m21 13-3.6-3.6a1.4 1.4 0 0 0-2 0L9 16"/>',
+  palette: '<path d="M12 3a9 9 0 0 0 0 18c1.1 0 1.7-.8 1.7-1.7 0-.5-.2-.9-.5-1.2a1.7 1.7 0 0 1 1.3-2.8H16.5A4.5 4.5 0 0 0 21 10.8C21 6.5 17 3 12 3Z"/><circle cx="7.5" cy="11" r="1.2" fill="currentColor"/><circle cx="10.5" cy="7" r="1.2" fill="currentColor"/><circle cx="15.5" cy="7.5" r="1.2" fill="currentColor"/>',
+  checkbox: '<rect x="4" y="4" width="16" height="16" rx="4"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
   chevron: '<path d="m9 6 6 6-6 6"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/>',
@@ -39,11 +43,13 @@ export function icon(name, size = 18, cls = '') {
 export const LOGO = `<svg class="logo" viewBox="0 0 64 64" aria-hidden="true">
   <defs>
     <linearGradient id="lfdg" x1="6" y1="4" x2="58" y2="60" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#8B6CFF"/><stop offset=".55" stop-color="#5B7CFA"/><stop offset="1" stop-color="#22D3EE"/>
+      <stop offset="0" style="stop-color:var(--accent-1,#8B6CFF)"/><stop offset=".55" style="stop-color:var(--accent-2,#5B7CFA)"/><stop offset="1" style="stop-color:var(--accent-3,#22D3EE)"/>
     </linearGradient>
   </defs>
   <rect x="2" y="2" width="60" height="60" rx="18" fill="url(#lfdg)"/>
-  <path d="M32 15v22" stroke="#fff" stroke-width="5.5" stroke-linecap="round"/>
-  <path d="m21.5 28 10.5 10.5L42.5 28" fill="none" stroke="#fff" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M19 47.5h26" stroke="#fff" stroke-opacity=".75" stroke-width="5.5" stroke-linecap="round"/>
+  <g style="stroke:var(--on-accent,#fff)" stroke-width="5.5" stroke-linecap="round" fill="none">
+    <path d="M32 15v22"/>
+    <path d="m21.5 28 10.5 10.5L42.5 28" stroke-linejoin="round"/>
+    <path d="M19 47.5h26" stroke-opacity=".75"/>
+  </g>
 </svg>`;

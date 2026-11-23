@@ -19,6 +19,7 @@
       </div>
       <div class="top-actions">
         <button class="icon-btn" id="btn-scan" title="Scan page again"><i data-icon="radar"></i></button>
+        <button class="icon-btn" id="btn-images" title="Find full-size images"><i data-icon="images"></i></button>
         <button class="icon-btn" id="btn-manager" title="Download manager"><i data-icon="list"></i></button>
         <button class="icon-btn" id="btn-settings" title="Settings"><i data-icon="settings"></i></button>
         <button class="icon-btn" id="btn-close" title="Close" hidden><i data-icon="x"></i></button>
@@ -31,10 +32,33 @@
         <button data-filter="video" aria-pressed="false">Video <span class="count" data-count="video"></span></button>
         <button data-filter="audio" aria-pressed="false">Audio <span class="count" data-count="audio"></span></button>
         <button data-filter="stream" aria-pressed="false">Streams <span class="count" data-count="stream"></span></button>
+        <button data-filter="image" aria-pressed="false">Images <span class="count" data-count="image"></span></button>
       </div>
     </nav>
 
     <main class="list" id="list" aria-live="polite"></main>
+
+    <section class="images-view" id="images-view" hidden>
+      <div class="img-bar">
+        <button class="img-selall" id="img-selall" role="checkbox" aria-checked="false"><span class="cb"><i data-icon="check" data-size="12"></i></span><span id="img-count">0 images</span></button>
+        <button class="btn btn-ghost btn-sm" id="img-rescan"><i data-icon="refresh" data-size="14"></i>Scan again</button>
+      </div>
+      <div class="img-progress" id="img-progress" hidden>
+        <div class="img-progress-row"><span class="spinner"></span><span id="img-progress-text">Following thumbnails…</span><button class="btn btn-ghost btn-sm" id="img-stop">Stop</button></div>
+        <div class="progress"><i id="img-progress-bar"></i></div>
+      </div>
+      <div class="img-grid" id="img-grid"></div>
+      <div class="img-empty" id="img-empty" hidden>
+        <div class="img-empty-art"><i data-icon="images" data-size="26"></i></div>
+        <h2>Find the full-size pictures</h2>
+        <p>LFDownloader follows every thumbnail on this page to the picture it opens, even when that's a separate page showing only the image.</p>
+        <button class="btn btn-primary" id="img-scan-first"><i data-icon="radar" data-size="16"></i>Scan for images</button>
+      </div>
+      <div class="img-actions" id="img-actions" hidden>
+        <button class="btn btn-ghost btn-sm" id="img-clear">Clear</button>
+        <button class="btn btn-primary" id="img-download"><i data-icon="download" data-size="16"></i><span>Download all</span></button>
+      </div>
+    </section>
 
     <section class="empty" id="empty" hidden>
       <div class="radar" aria-hidden="true">
@@ -43,7 +67,10 @@
       </div>
       <h2>Nothing caught yet</h2>
       <p>Play the video or song on this page — LFDownloader picks it up the moment it starts loading.</p>
-      <button class="btn btn-soft" id="btn-scan-empty"><i data-icon="radar" data-size="16"></i>Scan this page</button>
+      <div class="empty-actions">
+        <button class="btn btn-soft" id="btn-scan-empty"><i data-icon="radar" data-size="16"></i>Scan this page</button>
+        <button class="btn btn-soft" id="btn-images-empty"><i data-icon="images" data-size="16"></i>Find images</button>
+      </div>
     </section>
 
     <section class="empty" id="restricted" hidden>

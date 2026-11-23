@@ -6,19 +6,26 @@ import { classify, dedupeKey, nameFromUrl, extOf, hostOf } from '../shared/media
 import { DEFAULT_SETTINGS, getSettings, onSettingsChanged } from '../shared/settings.js';
 import * as store from './store.js';
 import { inspectHls, inspectDash } from './inspect.js';
-import { startDownload, records, ensureManager, notifyDone } from './downloads.js';
+import { startDownload, records, ensureManager, notifyDone, startImageBatch, cancelBatch } from './downloads.js';
+import '../content/extract.js'; // defines globalThis.LFDExtract
 import { addHeaderRules, removeHeaderRules } from './headers.js';
 import { createMenus, handleMenuClicks } from './menus.js';
+import { applySkin } from './skin.js';
 
 let settings = { ...DEFAULT_SETTINGS };
-getSettings().then((s) => { settings = s; });
-onSettingsChanged((s) => { settings = s; });
+getSettings().then((s) => { settings = s; applySkin(s); });
+onSettingsChanged((s) => {
+  const skinChanged = s.skin !== settings.skin || s.accent !== settings.accent;
+  settings = s;
+  if (skinChanged) applySkin(s);
+});
 
 const refererByRequest = new Map();
 const inspecting = new Set();
 
 // ───────────────────────── network sniffing ─────────────────────────
 
+const CONTENT_FILES = ['content/extract.js', 'content/content.js'];
 const TYPES = ['media', 'xmlhttprequest', 'object', 'other', 'main_frame', 'sub_frame'];
 
 function fromExtension(d) {
@@ -150,7 +157,7 @@ api.runtime.onStartup.addListener(createMenus);
 
 // ───────────────────────── panel / actions ─────────────────────────
 
-async function openPanel(tabId, focus = '', streamUrl = null, { rescan = false } = {}) {
+async function openPanel(tabId, focus = '', streamUrl = null, { rescan = false, view = '', scanImages = false } = {}) {
   if (tabId == null) return;
   if (streamUrl) {
     const info = await tabInfo(tabId);
@@ -161,13 +168,13 @@ async function openPanel(tabId, focus = '', streamUrl = null, { rescan = false }
       host: hostOf(streamUrl), source: 'link',
     });
   }
-  const msg = { type: 'lfd:panel', focus, rescan };
+  const msg = { type: 'lfd:panel', focus, rescan, view, scanImages };
   try {
     await api.tabs.sendMessage(tabId, msg, { frameId: 0 });
     return;
   } catch { /* content script missing (page loaded before install) */ }
   try {
-    await api.scripting.executeScript({ target: { tabId, allFrames: true }, files: ['content/content.js'] });
+    await api.scripting.executeScript({ target: { tabId, allFrames: true }, files: CONTENT_FILES });
     await api.tabs.sendMessage(tabId, msg, { frameId: 0 });
   } catch {
     // Restricted page (store, settings...): fall back to the toolbar popup.
@@ -184,7 +191,12 @@ async function downloadUrl(tabId, url, kind) {
   }, null, { tabId });
 }
 
-handleMenuClicks({ openPanel, downloadUrl, openManager: () => ensureManager() });
+handleMenuClicks({
+  openPanel,
+  downloadUrl,
+  openManager: () => ensureManager(),
+  scanImages: (tabId) => openPanel(tabId, '', null, { view: 'images', scanImages: true }),
+});
 
 api.commands?.onCommand.addListener(async (command) => {
   if (command !== 'scan-page') return;
@@ -267,6 +279,47 @@ const handlers = {
       });
     }
   },
+  async 'images:add'({ items = [] }, sender) {
+    const tabId = sender.tab?.id;
+    if (tabId == null) return 0;
+    const info = await tabInfo(tabId);
+    const clean = items.filter((i) => /^https?:/.test(i.url || '')).map((i) => ({
+      key: i.url.split('#')[0], url: i.url, kind: 'image', format: (extOf(i.url) || 'jpg').replace('jpeg', 'jpg'),
+      thumb: /^(https?|data):/.test(i.thumb || '') ? i.thumb : i.url, width: i.width || 0, height: i.height || 0,
+      name: nameFromUrl(i.url), title: info.title, pageUrl: info.pageUrl, referer: i.viewerUrl || info.pageUrl,
+      viewerUrl: i.viewerUrl || '', host: hostOf(i.url), source: 'gallery', size: 0,
+    }));
+    return store.addImages(tabId, clean);
+  },
+  async 'images:progress'({ state, done, total, found }, sender) {
+    const tabId = sender.tab?.id;
+    if (tabId != null) await api.storage.session.set({ [`imgscan:${tabId}`]: { state, done, total, found, at: Date.now() } });
+  },
+  async 'image:resolve'({ url, thumb }) {
+    const res = await fetch(url, { credentials: 'include' });
+    if (!res.ok) return null;
+    const type = res.headers.get('content-type') || '';
+    if (type.startsWith('image/')) return { url: res.url || url };
+    if (!type.includes('html')) return null;
+    return globalThis.LFDExtract.bestImageFromHtml(await res.text(), res.url || url, thumb);
+  },
+  async 'images:download'({ tabId, ids }) {
+    const items = (await store.getItems(tabId)).filter((i) => i.kind === 'image' && (!ids?.length || ids.includes(i.id)));
+    if (!items.length) throw new Error('No images selected');
+    const info = await tabInfo(tabId);
+    return startImageBatch(items, { title: info.title || items[0].title, pageUrl: info.pageUrl || items[0].pageUrl });
+  },
+  async 'images:clear'({ tabId }) {
+    await api.storage.session.remove(`imgscan:${tabId}`);
+    return store.patchItems(tabId, (list) => {
+      const before = list.length;
+      for (let i = list.length - 1; i >= 0; i--) if (list[i].kind === 'image') list.splice(i, 1);
+      return list.length !== before;
+    });
+  },
+  async 'batch:cancel'({ id }) {
+    return cancelBatch(id);
+  },
   async 'panel:open'({ focus }, sender) {
     return openPanel(sender.tab?.id, focus || '');
   },
@@ -308,8 +361,9 @@ const handlers = {
     const { downloads = [] } = await api.storage.local.get('downloads');
     const rec = downloads.find((r) => r.id === id);
     if (!rec) throw new Error('Download not found');
-    if (rec.type === 'stream') {
-      return records.update(id, { status: 'queued', error: '', progress: 0 });
+    if (rec.type === 'stream' || rec.type === 'fetch') {
+      await records.update(id, { status: 'queued', error: '', progress: 0 });
+      return ensureManager({ focus: false });
     }
     return startDownload({ url: rec.url, kind: rec.kind, format: rec.format?.toLowerCase(), title: rec.title, pageUrl: rec.pageUrl, referer: rec.pageUrl }, null, {});
   },

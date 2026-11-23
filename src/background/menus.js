@@ -12,6 +12,7 @@ export async function createMenus() {
   add({ id: 'lfd-media', title: 'Download this media', contexts: ['video', 'audio'] });
   add({ id: 'lfd-link', title: 'Download link with LFDownloader', contexts: ['link'], targetUrlPatterns: MEDIA_PATTERNS });
   add({ id: 'lfd-scan', title: 'Scan page for media', contexts: ['page', 'frame', 'selection', 'image', 'video', 'audio', 'link'] });
+  add({ id: 'lfd-images', title: 'Find full-size images on this page', contexts: ['page', 'frame', 'image', 'link'] });
   add({ id: 'lfd-manager', title: 'Open download manager', contexts: ['action'] });
   add({ id: 'lfd-options', title: 'Settings', contexts: ['action'] });
 }
@@ -20,7 +21,7 @@ export async function createMenus() {
  * @param deps.openPanel  (tabId, focusUrl?) => Promise
  * @param deps.downloadUrl (tabId, url, kind) => Promise
  */
-export function handleMenuClicks({ openPanel, downloadUrl, openManager }) {
+export function handleMenuClicks({ openPanel, downloadUrl, openManager, scanImages }) {
   api.contextMenus.onClicked.addListener(async (info, tab) => {
     const tabId = tab?.id;
     try {
@@ -44,6 +45,9 @@ export function handleMenuClicks({ openPanel, downloadUrl, openManager }) {
         }
         case 'lfd-scan':
           await openPanel(tabId, '', null, { rescan: true });
+          break;
+        case 'lfd-images':
+          await scanImages(tabId);
           break;
         case 'lfd-manager':
           await openManager();

@@ -59,4 +59,17 @@ ffIn(split, ...src,
   '-f', 'hls', '-hls_time', '2', '-hls_playlist_type', 'vod', '-hls_segment_filename', 's%v_%03d.ts',
   '-master_pl_name', 'master.m3u8', '-var_stream_map', 'v:0,agroup:aud v:1,agroup:aud a:0,agroup:aud,name:English', 's%v.m3u8');
 
+// Gallery: 10 full-size photos (1600x1200) and their thumbnails (240x180).
+const img = join(dir, 'img');
+mkdirSync(join(img, 'full'), { recursive: true });
+mkdirSync(join(img, 'thumbs'), { recursive: true });
+const hues = [0, 36, 72, 108, 144, 180, 216, 252, 288, 324];
+hues.forEach((h, i) => {
+  const n = i + 1;
+  const full = join(img, 'full', `photo${n}.jpg`);
+  ff('-f', 'lavfi', '-i', `testsrc2=size=1600x1200:duration=1,hue=h=${h}`, '-frames:v', '1', '-q:v', '3', full);
+  ff('-i', full, '-vf', 'scale=240:180', '-q:v', '5', join(img, 'thumbs', `photo${n}_t.jpg`));
+});
+ff('-f', 'lavfi', '-i', 'color=c=red:size=64x64:duration=1', '-frames:v', '1', join(img, 'logo.png'));
+
 console.log('✔ fixtures in', dir);

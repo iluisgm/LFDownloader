@@ -16,15 +16,28 @@
 
   const send = (type, payload = {}) => api.runtime.sendMessage({ type, ...payload }).catch(() => null);
 
-  api.storage.local.get('settings').then(({ settings: s }) => {
+  let skinColors = null;
+  api.storage.local.get(['settings', 'skinColors']).then(({ settings: s, skinColors: sc }) => {
     settings = { ...settings, ...(s || {}) };
+    skinColors = sc || null;
   });
   api.storage.onChanged.addListener((c, area) => {
-    if (area === 'local' && c.settings) {
+    if (area !== 'local') return;
+    if (c.settings) {
       settings = { ...settings, ...c.settings.newValue };
       if (!buttonAllowed()) hideButton(true);
     }
+    if (c.skinColors) {
+      skinColors = c.skinColors.newValue;
+      paintRoot();
+    }
   });
+
+  /** Skin colors reach the closed shadow tree through inherited custom properties. */
+  function paintRoot() {
+    if (!root || !skinColors) return;
+    for (const k of ['a1', 'a2', 'a3', 'on']) root.style.setProperty(`--${k}`, skinColors[k]);
+  }
 
   // ───────────────────────── DOM scan ─────────────────────────
 
@@ -89,6 +102,136 @@
     }
   }).observe(document.documentElement, { childList: true, subtree: true });
 
+  // ───────────────────────── gallery / image scan ─────────────────────────
+  // Thumbnails usually link either straight to the full image, or to a
+  // "viewer" page that shows only the picture. Direct links are taken as-is;
+  // viewer pages are fetched and their main picture is extracted.
+
+  const X = globalThis.LFDExtract;
+  const imageScan = { running: false, stop: false };
+
+  function thumbOf(el) {
+    const img = el.tagName === 'IMG' ? el : el.querySelector('img');
+    if (img) {
+      const src = X.imgSource({
+        src: img.currentSrc || img.getAttribute('src') || '',
+        srcset: '',
+        'data-src': img.dataset.src || img.dataset.lazySrc || img.dataset.original || '',
+      }, location.href);
+      return { src, img };
+    }
+    // CSS background thumbnails: <a><div style="background-image:url(...)"></div></a>
+    for (const node of [el, ...el.querySelectorAll('*')].slice(0, 6)) {
+      const bg = node.style?.backgroundImage || '';
+      const m = /url\(["']?([^"')]+)["']?\)/.exec(bg);
+      if (m) return { src: X.abs(m[1], location.href), img: null, box: node };
+    }
+    return null;
+  }
+
+  function looksLikeChrome(el, src) {
+    if (X.JUNK.test(src)) return true;
+    const r = el.getBoundingClientRect();
+    const nat = el.tagName === 'IMG' ? Math.max(el.naturalWidth, el.naturalHeight) : 0;
+    return Math.max(r.width, r.height) < 48 && nat < 64;
+  }
+
+  function collectImageCandidates() {
+    const direct = new Map(); // full image url -> item
+    const viewers = new Map(); // viewer page url -> thumb
+    const here = location.href.split('#')[0];
+    const origin = location.origin + '/';
+
+    for (const a of document.querySelectorAll('a[href]')) {
+      const t = thumbOf(a);
+      if (!t?.src || t.src.startsWith('data:') && !t.img) continue;
+      if (looksLikeChrome(t.img || t.box || a, t.src)) continue;
+      const href = a.href.split('#')[0];
+      if (!/^https?:/.test(href) || href === here || href === origin) continue;
+      if (X.IMG_EXT.test(href)) {
+        if (!direct.has(href)) direct.set(href, { url: href, thumb: t.src });
+      } else if (!viewers.has(href)) {
+        viewers.set(href, t.src);
+      }
+    }
+    // Big pictures shown on the page itself (not inside a link).
+    for (const img of document.images) {
+      if (img.closest('a[href]')) continue;
+      const src = X.imgSource({
+        src: img.currentSrc || img.src, srcset: img.srcset,
+        'data-src': img.dataset.src || '', 'data-original': img.dataset.original || '', 'data-full': img.dataset.full || '',
+      }, location.href);
+      if (!/^https?:/.test(src) || X.JUNK.test(src)) continue;
+      const w = img.naturalWidth;
+      const h = img.naturalHeight;
+      const r = img.getBoundingClientRect();
+      if ((w >= 300 && h >= 300) || (r.width >= 300 && r.height >= 300)) {
+        if (!direct.has(src)) direct.set(src, { url: src, thumb: img.currentSrc || src, width: w, height: h });
+      }
+    }
+    // The page *is* a picture (opened from a thumbnail).
+    if (document.contentType?.startsWith('image/')) direct.set(here, { url: here, thumb: here });
+    return { direct: [...direct.values()], viewers: [...viewers.entries()].slice(0, 400) };
+  }
+
+  async function resolveViewer(url, thumb) {
+    const sameOrigin = new URL(url).origin === location.origin;
+    if (!sameOrigin) {
+      const res = await send('image:resolve', { url, thumb });
+      return res?.data || null;
+    }
+    const res = await fetch(url, { credentials: 'include' });
+    if (!res.ok) return null;
+    const type = res.headers.get('content-type') || '';
+    if (type.startsWith('image/')) return { url: res.url || url };
+    if (!type.includes('html')) return null;
+    return X.bestImageFromHtml(await res.text(), res.url || url, thumb);
+  }
+
+  async function scanImages() {
+    if (imageScan.running) return;
+    imageScan.running = true;
+    imageScan.stop = false;
+    const { direct, viewers } = collectImageCandidates();
+    const total = direct.length + viewers.length;
+    let done = direct.length;
+    let found = 0;
+    const progress = (state) => send('images:progress', { state, done, total, found });
+    let batch = [];
+    const flush = () => {
+      if (!batch.length) return;
+      found += batch.length;
+      send('images:add', { items: batch });
+      batch = [];
+    };
+
+    batch.push(...direct);
+    flush();
+    progress('running');
+
+    let next = 0;
+    let lastFlush = Date.now();
+    const worker = async () => {
+      while (next < viewers.length && !imageScan.stop) {
+        const [url, thumb] = viewers[next++];
+        try {
+          const best = await resolveViewer(url, thumb);
+          if (best?.url) batch.push({ url: best.url, thumb, width: best.width || 0, height: best.height || 0, viewerUrl: url });
+        } catch { /* skip this one */ }
+        done++;
+        if (batch.length >= 12 || Date.now() - lastFlush > 700) {
+          flush();
+          lastFlush = Date.now();
+          progress('running');
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: 4 }, worker));
+    flush();
+    imageScan.running = false;
+    progress(imageScan.stop ? 'stopped' : 'done');
+  }
+
   // ───────────────────────── floating button ─────────────────────────
 
   const STYLE = `
@@ -106,8 +249,9 @@
     .fab.show { opacity: 1; transform: none; }
     .main {
       all: unset; cursor: pointer; display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 12px 0 9px;
-      border-radius: 9px; background: linear-gradient(135deg, #8B6CFF, #5B7CFA 55%, #22D3EE);
-      box-shadow: 0 6px 18px -6px rgba(110,100,255,.8); transition: filter .2s, transform .15s;
+      border-radius: 9px; color: var(--on, #fff);
+      background: linear-gradient(135deg, var(--a1, #8B6CFF), var(--a2, #5B7CFA) 55%, var(--a3, #22D3EE));
+      box-shadow: 0 6px 18px -6px color-mix(in srgb, var(--a2, #5B7CFA) 80%, transparent); transition: filter .2s, transform .15s;
     }
     .main:hover { filter: brightness(1.1); }
     .main:active { transform: scale(.96); }
@@ -148,6 +292,7 @@
     root = document.createElement('lfd-overlay');
     shadow = root.attachShadow({ mode: 'closed' });
     shadow.innerHTML = `<style>${STYLE}</style><div class="wrap"></div>`;
+    paintRoot();
     (document.fullscreenElement && document.fullscreenElement.tagName !== 'VIDEO' ? document.fullscreenElement : document.documentElement).append(root);
   }
 
@@ -266,9 +411,12 @@
 
   // ───────────────────────── panel (top frame) ─────────────────────────
 
-  function openPanel(focus = '') {
+  function openPanel(focus = '', view = '', autoScan = false) {
     ensureRoot();
-    const url = api.runtime.getURL(`popup/popup.html?mode=panel&focus=${encodeURIComponent(focus)}`);
+    const q = new URLSearchParams({ mode: 'panel', focus });
+    if (view) q.set('view', view);
+    if (autoScan) q.set('scan', '1');
+    const url = api.runtime.getURL(`popup/popup.html?${q}`);
     if (panel?.isConnected) {
       panel.src = url;
       return;
@@ -316,7 +464,17 @@
     }
     if (msg?.type === 'lfd:panel' && IS_TOP) {
       if (msg.rescan) scan();
-      openPanel(msg.focus || '');
+      openPanel(msg.focus || '', msg.view || '', !!msg.scanImages);
+      sendResponse({ ok: true });
+      return false;
+    }
+    if (msg?.type === 'lfd:images-scan' && IS_TOP) {
+      scanImages();
+      sendResponse({ ok: true });
+      return false;
+    }
+    if (msg?.type === 'lfd:images-stop' && IS_TOP) {
+      imageScan.stop = true;
       sendResponse({ ok: true });
       return false;
     }

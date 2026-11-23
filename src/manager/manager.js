@@ -4,6 +4,7 @@ import { $, $$, esc, toast, timeAgo, hydrateIcons } from '../shared/ui.js';
 import { getSettings, saveSettings, applyTheme, onSettingsChanged } from '../shared/settings.js';
 import { formatBytes, formatDuration, formatSpeed, formatBitrate, hostOf } from '../shared/media.js';
 import { HlsJob } from './hls-job.js';
+import { FileJob } from './file-job.js';
 
 const MAX_PARALLEL_STREAMS = 2;
 const ACTIVE = ['queued', 'downloading', 'saving'];
@@ -23,8 +24,8 @@ init();
 
 async function init() {
   state.settings = await getSettings();
-  applyTheme(state.settings.theme);
-  onSettingsChanged((s) => { state.settings = s; applyTheme(s.theme); syncThemeIcon(); });
+  applyTheme(state.settings);
+  onSettingsChanged((s) => { state.settings = s; applyTheme(s); syncThemeIcon(); });
   $('#logo').outerHTML = LOGO;
   $('#empty-logo').outerHTML = LOGO;
   hydrateIcons();
@@ -58,7 +59,7 @@ async function init() {
 
 async function recoverInterrupted() {
   for (const r of state.records) {
-    if (r.type === 'stream' && (r.status === 'downloading' || (r.status === 'saving' && !r.downloadId))) {
+    if ((r.type === 'stream' || r.type === 'fetch') && (r.status === 'downloading' || (r.status === 'saving' && !r.downloadId))) {
       await call('records:update', { id: r.id, patch: { status: 'interrupted', error: 'The manager window was closed' } });
     }
   }
@@ -71,12 +72,12 @@ async function recoverInterrupted() {
 
 function processQueue() {
   const running = state.jobs.size;
-  const queued = state.records.filter((r) => r.type === 'stream' && r.status === 'queued' && !state.jobs.has(r.id)).reverse();
+  const queued = state.records.filter((r) => (r.type === 'stream' || r.type === 'fetch') && r.status === 'queued' && !state.jobs.has(r.id)).reverse();
   for (const rec of queued.slice(0, Math.max(0, MAX_PARALLEL_STREAMS - running))) startJob(rec);
 }
 
 async function startJob(rec) {
-  const job = new HlsJob(rec, { concurrency: state.settings.segmentConcurrency });
+  const job = rec.type === 'fetch' ? new FileJob(rec) : new HlsJob(rec, { concurrency: state.settings.segmentConcurrency });
   state.jobs.set(rec.id, job);
   $('#keep-open').hidden = false;
   await call('records:update', { id: rec.id, patch: { status: 'downloading', error: '', startedAt: Date.now() } });
@@ -233,10 +234,12 @@ function dayGroup(ts) {
 }
 
 function tile(r, stateBadge = '') {
-  return `<div class="tile">${icon(r.kind === 'audio' ? 'music' : 'film', 20)}${stateBadge}</div>`;
+  const ico = r.kind === 'audio' ? 'music' : r.kind === 'image' ? 'images' : 'film';
+  return `<div class="tile">${icon(ico, 20)}${stateBadge}</div>`;
 }
 
 function fileName(r) {
+  if (r.type === 'batch') return `${r.title} · ${r.total} image${r.total === 1 ? '' : 's'}`;
   return (r.savedPath || r.filename || r.title || '').split(/[\\/]/).pop();
 }
 
@@ -246,7 +249,7 @@ function activeRow(r) {
   const queued = r.status === 'queued';
   const ops = [];
   if (isStream && job?.stats.live) ops.push(`<button class="btn btn-soft btn-sm" data-op="stop">${icon('stop', 13)}Stop &amp; save</button>`);
-  if (!queued) ops.push(`<button class="icon-btn" data-op="pause" title="Pause">${icon('pause', 17)}</button>`);
+  if (!queued && r.type !== 'batch') ops.push(`<button class="icon-btn" data-op="pause" title="Pause">${icon('pause', 17)}</button>`);
   ops.push(`<button class="icon-btn" data-op="cancel" title="Cancel">${icon('x', 17)}</button>`);
   return `<div class="row active" data-id="${r.id}" data-kind="${r.kind}">
     ${tile(r)}
@@ -273,9 +276,10 @@ function updateActiveRow(id) {
     const live = s.live;
     const pct = !live && s.total ? s.done / s.total : 0;
     set('phase', s.phase === 'Downloading' ? (live ? 'Recording live' : 'Downloading') : s.phase);
-    set('bytes', live ? `${formatBytes(s.bytes) || '0 B'} · ${formatDuration(s.seconds)}` : `${formatBytes(s.bytes) || '0 B'}${s.total ? ` · ${s.done}/${s.total} parts` : ''}`);
+    if (s.unit === 'bytes') set('bytes', s.total ? `${formatBytes(s.bytes) || '0 B'} of ${formatBytes(s.total)}` : formatBytes(s.bytes) || '0 B');
+    else set('bytes', live ? `${formatBytes(s.bytes) || '0 B'} · ${formatDuration(s.seconds)}` : `${formatBytes(s.bytes) || '0 B'}${s.total ? ` · ${s.done}/${s.total} parts` : ''}`);
     set('speed', s.speed ? `· ${formatSpeed(s.speed)}` : '');
-    const avg = s.done ? s.bytes / s.done : 0;
+    const avg = s.unit === 'bytes' ? 1 : s.done ? s.bytes / s.done : 0;
     const eta = !live && s.speed && avg ? ((s.total - s.done) * avg) / s.speed : 0;
     set('eta', eta > 1 ? `· ${formatDuration(eta)} left` : '');
     set('pct', live ? '' : `${Math.floor(pct * 100)}%`);
@@ -289,6 +293,19 @@ function updateActiveRow(id) {
       pauseBtn.innerHTML = icon(paused ? 'play' : 'pause', 17);
     }
     if (live && !row.querySelector('[data-op="stop"]')) render();
+    return;
+  }
+
+  if (r?.type === 'batch') {
+    const finished = r.done + r.failed;
+    const pct = r.total ? finished / r.total : 0;
+    set('phase', 'Saving images');
+    set('bytes', `${r.done} of ${r.total} saved${r.failed ? ` · ${r.failed} failed` : ''}${r.size ? ` · ${formatBytes(r.size)}` : ''}`);
+    set('speed', '');
+    set('eta', '');
+    set('pct', `${Math.floor(pct * 100)}%`);
+    bar.classList.remove('indeterminate');
+    fill.style.width = `${pct * 100}%`;
     return;
   }
 
@@ -320,16 +337,19 @@ function doneRow(r) {
   const badge = ok ? `<span class="state ok">${icon('check', 10)}</span>` : `<span class="state bad">${icon('x', 10)}</span>`;
   const sub = [];
   sub.push(esc([r.format, r.quality].filter(Boolean).join(' · ')));
+  if (r.type === 'batch' && r.failed) sub.push(`<span class="err">${r.failed} failed</span>`);
   if (r.size) sub.push(`<span class="num">${formatBytes(r.size)}</span>`);
   if (r.duration) sub.push(`<span class="num">${formatDuration(r.duration)}</span>`);
   sub.push(esc(hostOf(r.pageUrl || r.url)));
   if (ok) sub.push(timeAgo(r.finishedAt || r.createdAt));
   else sub.push(`<span class="err">${esc(r.status === 'canceled' ? 'Canceled' : r.error || 'Failed')}</span>`);
 
-  const ops = ok && r.downloadId != null
-    ? `<button class="btn btn-soft btn-sm" data-op="open">${icon('play', 13)}Open</button>
-       <button class="icon-btn" data-op="show" title="Show in folder">${icon('folder', 17)}</button>`
-    : !ok ? `<button class="btn btn-soft btn-sm" data-op="retry">${icon('refresh', 13)}Retry</button>` : '';
+  const ops = r.type === 'batch'
+    ? (r.downloadId != null && r.done ? `<button class="btn btn-soft btn-sm" data-op="show">${icon('folder', 13)}Show folder</button>` : '')
+    : ok && r.downloadId != null
+      ? `<button class="btn btn-soft btn-sm" data-op="open">${icon('play', 13)}Open</button>
+         <button class="icon-btn" data-op="show" title="Show in folder">${icon('folder', 17)}</button>`
+      : !ok ? `<button class="btn btn-soft btn-sm" data-op="retry">${icon('refresh', 13)}Retry</button>` : '';
   return `<div class="row" data-id="${r.id}" data-kind="${r.kind}">
     ${tile(r, badge)}
     <div class="body">
@@ -407,7 +427,8 @@ async function onRowClick(e) {
         toast('Finishing the recording…');
         break;
       case 'cancel':
-        if (job) job.cancel();
+        if (r.type === 'batch') await call('batch:cancel', { id });
+        else if (job) job.cancel();
         else if (r.downloadId != null && r.type === 'file') await api.downloads.cancel(r.downloadId).catch(() => {});
         else await call('records:update', { id, patch: { status: 'canceled' } });
         break;

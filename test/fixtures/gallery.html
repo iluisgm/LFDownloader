@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en"><head>
+  <meta charset="utf-8"><title>Lisbon at Night — Photo gallery</title>
+  <style>
+    body { font: 15px/1.5 system-ui, sans-serif; margin: 0; background: #f4f4f6; }
+    header { display: flex; align-items: center; gap: 12px; padding: 14px 28px; background: #fff; }
+    main { max-width: 1100px; margin: 0 auto; padding: 24px 28px; }
+    .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+    .grid img, .grid .bg { width: 100%; aspect-ratio: 4/3; object-fit: cover; border-radius: 10px; display: block; background-size: cover; }
+  </style>
+</head><body>
+  <header><a href="/"><img src="/media/img/logo.png" width="32" height="32" alt="Site logo"></a><b>Example Gallery</b></header>
+  <main>
+    <h1>Lisbon at Night</h1>
+    <div class="grid">
+      <a href="/media/img/full/photo1.jpg"><img src="/media/img/thumbs/photo1_t.jpg" alt="Photo 1"></a>
+      <a href="/media/img/full/photo2.jpg"><img src="/media/img/thumbs/photo2_t.jpg" alt="Photo 2"></a>
+      <a href="/media/img/full/photo3.jpg"><img src="/media/img/thumbs/photo3_t.jpg" alt="Photo 3"></a>
+      <a href="/media/img/full/photo4.jpg"><img src="/media/img/thumbs/photo4_t.jpg" alt="Photo 4"></a>
+      <a href="/viewer/photo5.html"><img src="/media/img/thumbs/photo5_t.jpg" alt="Photo 5"></a>
+      <a href="/viewer/photo6.html"><img src="/media/img/thumbs/photo6_t.jpg" alt="Photo 6"></a>
+      <a href="/viewer/photo7.html"><img src="/media/img/thumbs/photo7_t.jpg" alt="Photo 7"></a>
+      <a href="/viewer/photo8.html"><img src="/media/img/thumbs/photo8_t.jpg" alt="Photo 8"></a>
+      <a href="http://127.0.0.1:8765/viewer/photo9.html"><img src="/media/img/thumbs/photo9_t.jpg" alt="Photo 9"></a>
+      <a href="/viewer/photo10.html"><div class="bg" style="background-image:url(/media/img/thumbs/photo10_t.jpg)"></div></a>
+    </div>
+  </main>
+</body></html>

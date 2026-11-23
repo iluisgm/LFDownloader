@@ -12,11 +12,13 @@
   --accent-2: #5B7CFA;
   --accent-3: #22D3EE;
   --grad: linear-gradient(135deg, var(--accent-1) 0%, var(--accent-2) 55%, var(--accent-3) 100%);
-  --grad-soft: linear-gradient(135deg, rgba(139,108,255,.16), rgba(34,211,238,.12));
+  --grad-soft: linear-gradient(135deg, color-mix(in srgb, var(--accent-1) 16%, transparent), color-mix(in srgb, var(--accent-3) 12%, transparent));
 
+  --on-accent: #fff;
   --video: #8B6CFF;
   --audio: #F472B6;
   --stream: #22D3EE;
+  --image: #FBBF24;
   --ok: #34D399;
   --warn: #FBBF24;
   --bad: #F87171;
@@ -39,7 +41,7 @@
   --shadow-sm: 0 1px 2px rgba(0,0,0,.4);
   --shadow: 0 10px 30px -10px rgba(0,0,0,.6), 0 2px 6px rgba(0,0,0,.35);
   --shadow-lg: 0 30px 80px -20px rgba(0,0,0,.75), 0 8px 24px rgba(0,0,0,.45);
-  --glow: 0 6px 24px -6px rgba(110,100,255,.55);
+  --glow: 0 6px 24px -6px color-mix(in srgb, var(--accent-2) 55%, transparent);
   --chip-on-text: #fff;
 }
 
@@ -60,7 +62,7 @@
   --shadow-sm: 0 1px 2px rgba(20,24,60,.08);
   --shadow: 0 10px 30px -12px rgba(20,24,60,.22), 0 2px 6px rgba(20,24,60,.06);
   --shadow-lg: 0 30px 70px -20px rgba(20,24,60,.3), 0 8px 24px rgba(20,24,60,.08);
-  --glow: 0 6px 20px -6px rgba(91,124,250,.5);
+  --glow: 0 6px 20px -6px color-mix(in srgb, var(--accent-2) 50%, transparent);
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -96,7 +98,7 @@ a { color: inherit; }
 }
 .btn:active { transform: scale(.97); }
 .btn[disabled] { opacity: .45; pointer-events: none; }
-.btn-primary { background: var(--grad); color: #fff; box-shadow: var(--glow); }
+.btn-primary { background: var(--grad); color: var(--on-accent); box-shadow: var(--glow); }
 .btn-primary:hover { filter: brightness(1.08) saturate(1.05); }
 .btn-ghost { color: var(--text-2); }
 .btn-ghost:hover { background: var(--hover); color: var(--text); }
@@ -123,6 +125,7 @@ a { color: inherit; }
 }
 .badge.video { background: color-mix(in srgb, var(--video) 16%, transparent); color: color-mix(in srgb, var(--video) 80%, var(--text)); }
 .badge.audio { background: color-mix(in srgb, var(--audio) 16%, transparent); color: color-mix(in srgb, var(--audio) 80%, var(--text)); }
+.badge.image { background: color-mix(in srgb, var(--image) 16%, transparent); color: color-mix(in srgb, var(--image) 80%, var(--text)); }
 .badge.stream { background: color-mix(in srgb, var(--stream) 14%, transparent); color: color-mix(in srgb, var(--stream) 80%, var(--text)); }
 .badge.live { background: rgba(248,113,113,.15); color: var(--bad); }
 .badge.drm { background: rgba(251,191,36,.14); color: var(--warn); }
@@ -146,7 +149,7 @@ a { color: inherit; }
   background: var(--surface-2); border: 1px solid var(--line); outline: none;
   transition: border-color .2s, box-shadow .2s, background .2s;
 }
-.input:focus { border-color: var(--accent-2); box-shadow: 0 0 0 3px rgba(91,124,250,.2); background: var(--surface); }
+.input:focus { border-color: var(--accent-2); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-2) 20%, transparent); background: var(--surface); }
 .input::placeholder { color: var(--text-3); }
 
 .switch { position: relative; width: 36px; height: 21px; flex: none; }

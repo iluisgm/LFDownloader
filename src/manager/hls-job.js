@@ -9,7 +9,7 @@ import { extOf } from '../shared/media.js';
 
 const MAX_RETRIES = 5;
 
-class Sink {
+export class Sink {
   static async create(name) {
     try {
       const dir = await navigator.storage.getDirectory();

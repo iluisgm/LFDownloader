@@ -65,8 +65,9 @@ try {
   await send({ type: 'headers:remove', ids: rules?.data || [] });
 
   const byUrl = (s) => list.find((i) => i.url.includes(s));
+  const pageVid = byUrl('hotlink-html/sample.mp4');
   const master = byUrl('hls/master');
-  for (const [it, v] of [[byUrl('sample.mp4')], [master, master?.variants?.[0]], [fmp4]]) {
+  for (const [it, v] of [[list.find((i) => i.url.endsWith('/media/sample.mp4'))], [master, master?.variants?.[0]], [fmp4], [pageVid]]) {
     if (!it) continue;
     const r = await send({ type: 'media:download', tabId, id: it.id, variantId: v?.id });
     check(r?.ok, `Firefox: download started ${it.url.split('/').pop()}${r?.error ? ` (${r.error})` : ''}`);
@@ -75,19 +76,47 @@ try {
   for (let i = 0; i < 60; i++) {
     await sleep(1000);
     recs = await mgr.evaluate(async () => (await browser.storage.local.get('downloads')).downloads || []);
-    if (recs.length >= 3 && recs.every((r) => !['queued', 'downloading', 'saving'].includes(r.status))) break;
+    if (recs.length >= 4 && recs.every((r) => !['queued', 'downloading', 'saving'].includes(r.status))) break;
   }
+  check(recs.find((r) => r.url?.includes('/hotlink-html/'))?.type === 'fetch', 'Firefox: host that answers with a web page → fetched with the Referer');
   for (const r of recs) check(r.status === 'completed', `Firefox: ${r.type} ${r.filename} → ${r.status}${r.error ? ` (${r.error})` : ''}`);
+
+  // ── gallery scan + bulk image download ──
+  const gal = await browser.newPage();
+  await gal.goto('http://localhost:8765/gallery.html', { waitUntil: 'load' });
+  await sleep(1000);
+  const galTab = (await mgr.evaluate(() => browser.tabs.query({ url: 'http://localhost/gallery.html' })))[0]?.id;
+  await mgr.evaluate((id) => browser.tabs.sendMessage(id, { type: 'lfd:images-scan' }, { frameId: 0 }), galTab);
+  let scan;
+  for (let i = 0; i < 40; i++) {
+    await sleep(500);
+    scan = (await mgr.evaluate((id) => browser.storage.session.get(`imgscan:${id}`), galTab))[`imgscan:${galTab}`];
+    if (scan?.state === 'done') break;
+  }
+  const imgs = ((await send({ type: 'media:list', tabId: galTab }))?.data || []).filter((i) => i.kind === 'image');
+  check(scan?.state === 'done' && imgs.length === 10 && !imgs.some((i) => /thumbs|logo/.test(i.url)), `Firefox: gallery scan found ${imgs.length} full-size images`);
+  const batch = await send({ type: 'images:download', tabId: galTab, ids: [] });
+  check(batch?.ok, `Firefox: image batch started${batch?.error ? ` (${batch.error})` : ''}`);
+  let brec;
+  for (let i = 0; i < 40; i++) {
+    await sleep(500);
+    brec = (await mgr.evaluate(async () => (await browser.storage.local.get('downloads')).downloads || [])).find((r) => r.type === 'batch');
+    if (brec && brec.status !== 'downloading') break;
+  }
+  check(brec?.status === 'completed' && brec.done === 10, `Firefox: images saved ${brec?.done}/${brec?.total} (failed ${brec?.failed}${brec?.error ? `, ${brec.error}` : ''})`);
+  recs = recs.filter((r) => r.type !== 'batch');
 
   const files = [];
   const walk = (d) => { for (const f of readdirSync(d)) { const p = join(d, f); statSync(p).isDirectory() ? walk(p) : files.push(p); } };
   walk(dl);
-  for (const f of files.filter((x) => !x.endsWith('.part'))) {
+  const jpgs = files.filter((x) => x.endsWith('.jpg'));
+  check(jpgs.length === 10, `Firefox: ${jpgs.length} images on disk`);
+  for (const f of files.filter((x) => !x.endsWith('.part') && !x.endsWith('.jpg'))) {
     let dur = 0;
     try { dur = Number(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', f]).toString().trim()); } catch { /* invalid */ }
     check(Math.abs(dur - 12) < 1.5, `Firefox file ${f.replace(dl, '')} → ${dur.toFixed(2)}s`);
   }
-  check(files.length >= 3, `Firefox: ${files.length} files on disk`);
+  check(files.length - jpgs.length >= 4, `Firefox: ${files.length - jpgs.length} media files on disk`);
 } catch (e) {
   failures++;
   console.error(e);

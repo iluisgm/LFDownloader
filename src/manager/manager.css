@@ -6,12 +6,12 @@ body { overflow: hidden; }
 .side {
   display: flex; flex-direction: column; gap: 4px; padding: 18px 12px 14px;
   background:
-    radial-gradient(140% 40% at 0% 0%, rgba(139,108,255,.13), transparent 70%),
+    radial-gradient(140% 40% at 0% 0%, color-mix(in srgb, var(--accent-1) 13%, transparent), transparent 70%),
     var(--bg-elev);
   border-right: 1px solid var(--line);
 }
 .brand { display: flex; align-items: center; gap: 11px; padding: 2px 8px 18px; }
-.brand .logo { width: 34px; height: 34px; filter: drop-shadow(0 6px 16px rgba(110,100,255,.45)); }
+.brand .logo { width: 34px; height: 34px; filter: drop-shadow(0 6px 16px color-mix(in srgb, var(--accent-2) 45%, transparent)); }
 .brand b { display: block; font: 700 15px/1.1 var(--font-display); letter-spacing: -.01em; }
 .brand small { display: block; margin-top: 3px; color: var(--text-3); font-size: 11.5px; }
 
@@ -28,6 +28,7 @@ body { overflow: hidden; }
 .kdot { width: 9px; height: 9px; border-radius: 3px; margin: 0 4px; }
 .kdot.video { background: var(--video); }
 .kdot.audio { background: var(--audio); }
+.kdot.image { background: var(--image); }
 
 .side-foot { margin-top: auto; display: grid; gap: 10px; }
 .stat {
@@ -75,6 +76,7 @@ body { overflow: hidden; }
 }
 .row[data-kind="video"] { --k: var(--video); }
 .row[data-kind="audio"] { --k: var(--audio); }
+.row[data-kind="image"] { --k: var(--image); }
 .row .tile .state {
   position: absolute; right: -4px; bottom: -4px; width: 18px; height: 18px; border-radius: 50%;
   display: grid; place-items: center; border: 2.5px solid var(--surface);
@@ -111,7 +113,7 @@ body { overflow: hidden; }
 .ea-card.c1 { width: 110px; height: 70px; left: 0; top: 30px; transform: rotate(-8deg); opacity: .5; }
 .ea-card.c2 { width: 110px; height: 70px; right: 0; top: 26px; transform: rotate(8deg); opacity: .7; }
 .ea-card.c3 { width: 84px; height: 84px; left: 38px; top: 6px; display: grid; place-items: center; border-radius: 24px; animation: float 4s ease-in-out infinite; }
-.ea-card.c3 .logo { width: 52px; height: 52px; filter: drop-shadow(0 8px 22px rgba(110,100,255,.5)); }
+.ea-card.c3 .logo { width: 52px; height: 52px; filter: drop-shadow(0 8px 22px color-mix(in srgb, var(--accent-2) 50%, transparent)); }
 @keyframes float { 50% { transform: translateY(-6px); } }
 
 /* ── modal ── */
@@ -139,5 +141,5 @@ body { overflow: hidden; }
   height: 30px; padding: 0 11px; border-radius: 9px; font-size: 12px; font-weight: 650;
   background: var(--surface); border: 1px solid var(--line); color: var(--text-2);
 }
-.add-result .q[aria-checked="true"] { background: var(--grad); color: #fff; border-color: transparent; }
+.add-result .q[aria-checked="true"] { background: var(--grad); color: var(--on-accent); border-color: transparent; }
 .add-result .err { color: var(--bad); display: flex; gap: 8px; align-items: center; }
