@@ -137,7 +137,9 @@ export async function startDownload(item, variant, { tabId, title: chosenTitle }
   const settings = await getSettings();
   // The popup's name for the item wins (e.g. track names on an album page);
   // otherwise use the tab's latest title.
-  const title = cleanTitle(chosenTitle || (tabId != null ? await currentTitle(tabId, item) : item.title));
+  const title = item.source === 'ytdlp' && item.info === 'ready'
+    ? String(chosenTitle || item.title || '').trim()
+    : cleanTitle(chosenTitle || (tabId != null ? await currentTitle(tabId, item) : item.title));
   const quality = variant?.audioOnly ? 'audio' : variant?.label && variant.label !== 'Source' ? variant.label : item.quality || '';
 
   if (item.drm) throw new Error('This stream is DRM-protected and cannot be saved.');
@@ -149,7 +151,7 @@ export async function startDownload(item, variant, { tabId, title: chosenTitle }
     if (item.live || item.upcoming) throw new Error('Live streams can be downloaded once they have ended.');
     const ext = v.container || 'mp4';
     const q = v.audioOnly ? 'audio' : v.label;
-    const filename = buildFilename({ template: settings.filenameTemplate, title, quality: q, url: item.url, ext, folder: settings.folder });
+    const filename = buildFilename({ template: settings.filenameTemplate, title, quality: q, url: item.url, ext, folder: settings.folder, raw: item.info === 'ready' });
     const rec = await records.add({
       id: uid(), type: 'ytdlp', status: 'queued', title: title || filename, filename,
       url: item.url, pageUrl: item.pageUrl, kind: v.audioOnly ? 'audio' : 'video', site: item.site || '',

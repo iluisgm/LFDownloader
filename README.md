@@ -15,6 +15,7 @@ A Chrome + Firefox extension that catches the videos, music, streams and gallery
   - *As one ZIP file*: a single file, so at most one save dialog. Works in every browser.
   - *As separate downloads*: the browser may ask where to save each one if "Ask where to save each file" is on.
 - **YouTube (with the yt-dlp helper).** On a YouTube video page (also Shorts, `youtu.be` and players embedded in other sites) the popup shows a card with the real qualities, from 240p up to 4K/8K, plus *Audio (M4A)* and *MP3*, each with its file size. 1080p is preselected (H.264 MP4 plays everywhere); 1440p and above are saved as MKV because YouTube only offers them as VP9/AV1. The original-language audio is used, never a dubbed track. Downloads run in the download manager with live progress and land in `Downloads/LFDownloader`. See [YouTube setup](#youtube-setup).
+- **X (Twitter) videos (with the yt-dlp helper).** Videos in X posts, in your feed or on a post page, get an *X* card that saves one MP4 with sound (X itself streams silent video and audio separately). The post you're viewing comes first; the floating Download button on an X video opens its card.
 - **Skins.** *Aurora* (violet → cyan), *Crimson* (black & red), *Ocean*, *Emerald*, *Sunset*, or *Custom* with any accent color you pick. The skin also re-colors the toolbar icon, the badge, and the Download button on web pages. Add *Pure black background* for OLED screens.
 - **Download manager window.** Progress, speed, ETA, pause/resume, cancel, retry, search, history, "Add link" (paste any media or `.m3u8` URL), and *Stop & save* for live streams.
 - **Stream engine.** Parallel segment downloads with retries, AES-128 decryption, fMP4 (`EXT-X-MAP`), byte ranges, separate audio tracks, and live recording. Data is written to disk-backed browser storage (OPFS), not RAM.
@@ -114,6 +115,8 @@ npm run test:gallery          # real Chrome: thumbnails → full-size images, bu
 npm run test:firefox          # real Firefox: detection, Referer rules, downloads, gallery, helper
 npm run test:helper           # yt-dlp helper: real YouTube downloads (small), cancel, errors
 npm run test:youtube          # real Chrome: YouTube page → qualities → 240p download
+npm run test:x                # real Chrome: public X post → X card → one MP4 with sound
+npm run test:panel-firefox    # real Firefox: the in-page panel loads and updates live
 npm run lint:firefox
 npm run screens -- out crimson dark   # screenshots of every page in a skin
 ```

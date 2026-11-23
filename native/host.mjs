@@ -128,13 +128,14 @@ const HEIGHTS = [4320, 2880, 2160, 1440, 1080, 720, 480, 360, 240, 144];
 function summarize(j) {
   const formats = (j.formats || []).filter((f) => f.format_note !== 'storyboard' && f.ext !== 'mhtml');
   const size = (f) => f?.filesize || f?.filesize_approx || (f?.tbr && j.duration ? Math.round((f.tbr * 1000 * j.duration) / 8) : 0);
-  const audios = formats.filter((f) => f.vcodec === 'none' && f.acodec && f.acodec !== 'none');
+  // Audio-only streams (some sites, like X, don't name the codec).
+  const audios = formats.filter((f) => f.vcodec === 'none' && f.acodec !== 'none' && (f.acodec || /audio/i.test(f.format_id || '')));
   // The original-language track first (dubbed tracks have a lower preference).
   const pref = (f) => (f.language_preference ?? 0) * 1e6 + (f.abr || f.tbr || 0);
   const bestAudio = (pred = () => true) => audios.filter(pred).sort((a, b) => pref(b) - pref(a))[0];
   const m4a = bestAudio((f) => f.ext === 'm4a') || bestAudio();
   const anyAudio = bestAudio();
-  const videos = formats.filter((f) => f.vcodec && f.vcodec !== 'none' && f.height);
+  const videos = formats.filter((f) => f.vcodec !== 'none' && f.height);
 
   const qualities = [];
   for (const h of HEIGHTS) {
@@ -147,7 +148,8 @@ function summarize(j) {
     const pool = direct.length ? direct : at;
     const byRate = (a, b) => (b.fps || 0) - (a.fps || 0) || (b.tbr || 0) - (a.tbr || 0);
     const codecRank = (f) => (/^av01/.test(f.vcodec) ? 3 : /^vp0?9/.test(f.vcodec) ? 2 : 1);
-    const mp4 = pool.filter((f) => /^avc1/.test(f.vcodec || '')).sort(byRate)[0];
+    // H.264, or a plain .mp4 whose codec isn't named (X's progressive files).
+    const mp4 = pool.filter((f) => /^avc1/.test(f.vcodec || '') || (!f.vcodec && f.ext === 'mp4')).sort(byRate)[0];
     const best = mp4 && h <= 1080 ? mp4 : [...pool].sort((a, b) => codecRank(b) - codecRank(a) || byRate(a, b))[0];
     const hasOwnAudio = best.acodec && best.acodec !== 'none';
     qualities.push({
@@ -210,7 +212,10 @@ function formatArgs({ height, audioOnly, audioFormat }) {
   const h = Number(height);
   if (h <= 1080) {
     // H.264 + AAC in MP4 plays everywhere (Windows' own player, phones, TVs).
-    return ['-f', `bv*[height<=${h}][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=${h}]+ba/b[height<=${h}]/b`, '--merge-output-format', 'mp4/mkv'];
+    return [
+      '-f', `bv*[height<=${h}][vcodec^=avc1]+ba[ext=m4a]/b[height<=${h}][ext=mp4]/bv*[height<=${h}]+ba/b[height<=${h}]/b`,
+      '--merge-output-format', 'mp4/mkv', '--remux-video', 'mp4',
+    ];
   }
   return ['-f', `bv*[height<=${h}]+ba/b[height<=${h}]/b`, '--merge-output-format', 'mkv'];
 }

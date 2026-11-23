@@ -175,8 +175,8 @@ export function cleanTitle(title) {
     .trim();
 }
 
-export function buildFilename({ template, title, quality, url, ext, folder }) {
-  const base = cleanTitle(title) || nameFromUrl(url) || 'media';
+export function buildFilename({ template, title, quality, url, ext, folder, raw = false }) {
+  const base = (raw ? String(title || '').trim() : cleanTitle(title)) || nameFromUrl(url) || 'media';
   let name = (template || '{title}')
     .replaceAll('{title}', base)
     .replaceAll('{quality}', quality || '')

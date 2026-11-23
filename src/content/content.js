@@ -49,8 +49,36 @@
     }
   }
 
+  const IS_X = /(^|\.)(x|twitter)\.com$/.test(location.hostname);
+
+  /** On X, the post a video belongs to: {id, url, title}. */
+  function postFor(video) {
+    const art = video.closest('article');
+    const fromPage = () => {
+      const m = location.pathname.match(/^\/(\w{1,15})\/status\/(\d+)/);
+      return m ? { id: m[2], url: `https://x.com/${m[1]}/status/${m[2]}`, title: '' } : null;
+    };
+    if (!art) return fromPage();
+    const links = [...art.querySelectorAll('a[href*="/status/"]')];
+    const a = links.find((l) => l.querySelector('time')) || links.find((l) => /\/status\/\d+\/?$/.test(l.pathname));
+    const m = a?.pathname.match(/^\/(\w{1,15})\/status\/(\d+)/);
+    if (!m) return fromPage();
+    const text = (art.querySelector('[data-testid="tweetText"]')?.innerText || '').replace(/\s+/g, ' ').trim();
+    return { id: m[2], url: `https://x.com/${m[1]}/status/${m[2]}`, title: text ? `@${m[1]}: ${text.slice(0, 120)}` : `Video from @${m[1]}` };
+  }
+
+  function reportPosts(videos) {
+    const posts = new Map();
+    for (const v of videos) {
+      const p = postFor(v);
+      if (p && !posts.has(p.id)) posts.set(p.id, { url: p.url, title: p.title, poster: v.poster ? abs(v.poster) : '' });
+    }
+    return posts.size ? send('site:add', { items: [...posts.values()] }) : null;
+  }
+
   function scan() {
     const items = new Map();
+    if (IS_X) reportPosts(document.querySelectorAll('video'));
     const posters = [];
     const add = (url, extra = {}) => {
       url = abs(url);
@@ -407,10 +435,13 @@
     e.preventDefault();
     e.stopPropagation();
     const src = current?.currentSrc || current?.src || '';
-    // YouTube plays from a blob: address; point at the page's YouTube card instead.
+    // YouTube and X play from blob: addresses; point at their yt-dlp card instead.
     const yt = /(^|\.)youtube(-nocookie)?\.com$/.test(location.hostname)
       && (location.search.match(/[?&]v=([\w-]{11})/) || location.pathname.match(/^\/(?:shorts|embed|live)\/([\w-]{11})/) || [])[1];
-    send('panel:open', { focus: /^https?:/.test(src) ? src : yt ? `yt:${yt}` : '' });
+    const post = IS_X && current ? postFor(current) : null;
+    const open = () => send('panel:open', { focus: /^https?:/.test(src) ? src : yt ? `yt:${yt}` : post ? `x:${post.id}` : '' });
+    if (post) Promise.resolve(reportPosts([current])).then(open);
+    else open();
   }
 
   async function hideForSite(e) {

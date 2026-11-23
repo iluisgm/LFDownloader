@@ -11,7 +11,7 @@ import '../content/extract.js'; // defines globalThis.LFDExtract
 import { addHeaderRules, removeHeaderRules } from './headers.js';
 import { createMenus, handleMenuClicks } from './menus.js';
 import { applySkin } from './skin.js';
-import { youtubeId, youtubeItem } from '../shared/sites.js';
+import { youtubeId, youtubeItem, xStatusId, xItem } from '../shared/sites.js';
 import { nativeRequest, helperStatus, variantsFromInfo, defaultVariant } from './native.js';
 
 let settings = { ...DEFAULT_SETTINGS };
@@ -105,6 +105,20 @@ api.webRequest.onBeforeRequest.addListener((d) => {
 
 const infoFlights = new Map(); // video -> Promise of the helper's summary
 
+// At most two yt-dlp look-ups at once (a feed can hold dozens of videos).
+let infoRunning = 0;
+const infoWaiting = [];
+async function limitInfo(fn) {
+  if (infoRunning >= 2) await new Promise((r) => infoWaiting.push(r));
+  infoRunning++;
+  try {
+    return await fn();
+  } finally {
+    infoRunning--;
+    infoWaiting.shift()?.();
+  }
+}
+
 /** Ask the helper for an item's qualities (cached per video for this browser session). */
 async function loadSiteInfo(tabId, id) {
   const item = await store.getItem(tabId, id);
@@ -121,7 +135,7 @@ async function loadSiteInfo(tabId, id) {
   if (!info) {
     await set({ info: 'loading', infoError: '' });
     if (!infoFlights.has(cacheKey)) {
-      infoFlights.set(cacheKey, nativeRequest('info', { url: item.url }).finally(() => setTimeout(() => infoFlights.delete(cacheKey), 1000)));
+      infoFlights.set(cacheKey, limitInfo(() => nativeRequest('info', { url: item.url })).finally(() => setTimeout(() => infoFlights.delete(cacheKey), 1000)));
     }
     try {
       info = await infoFlights.get(cacheKey);
@@ -333,6 +347,25 @@ const handlers = {
     if (!item) throw new Error('This media is no longer available — reload the page.');
     const variant = item.variants?.find((v) => v.id === variantId);
     return startDownload(item, variant, { tabId, title });
+  },
+  async 'site:add'({ items = [] }, sender) {
+    // Videos in X posts, found by the content script (X plays them from blob: URLs).
+    const tabId = sender.tab?.id;
+    if (tabId == null || !allowed('video')) return 0;
+    let added = 0;
+    for (const it of items.slice(0, 60)) {
+      const id = xStatusId(it.url);
+      if (!id) continue;
+      const user = (it.url.match(/\.com\/([\w]{1,15})\/status/) || [])[1] || '';
+      const poster = /^https:\/\/pbs\.twimg\.com\//.test(it.poster || '') ? it.poster : '';
+      if (await store.addItem(tabId, xItem(id, { pageUrl: sender.tab.url, title: String(it.title || '').slice(0, 200), poster, user: user === 'i' ? '' : user }))) added++;
+    }
+    return added;
+  },
+  async 'session:get'({ key }) {
+    // For extension frames that can't read session storage themselves (Firefox in-page panel).
+    if (!/^(tab|imgscan):\d+$/.test(key || '')) throw new Error('Unknown key');
+    return (await api.storage.session.get(key))[key] ?? null;
   },
   async 'site:info'({ tabId, id }) {
     return loadSiteInfo(tabId, id);

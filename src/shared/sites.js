@@ -26,3 +26,23 @@ export function youtubeItem(id, { pageUrl, title = '' }) {
     poster: youtubeThumb(id), variants: [], size: 0,
   };
 }
+
+const X_HOSTS = /(^|\.)(x\.com|twitter\.com)$/i;
+
+/** The numeric ID of an X/Twitter post link (x.com/user/status/123…), or ''. */
+export function xStatusId(url) {
+  let u;
+  try { u = new URL(url); } catch { return ''; }
+  if (!X_HOSTS.test(u.hostname)) return '';
+  const m = u.pathname.match(/^\/(?:[\w]{1,15}|i(?:\/web)?)\/status(?:es)?\/(\d{5,25})/);
+  return m ? m[1] : '';
+}
+
+/** Media item for a video in an X post (downloaded with yt-dlp as one MP4). */
+export function xItem(id, { pageUrl, title = '', poster = '', user = '' }) {
+  return {
+    key: `x:${id}`, statusId: id, source: 'ytdlp', site: 'X',
+    kind: 'video', format: 'x', url: `https://x.com/${user || 'i'}/status/${id}`, pageUrl, title,
+    poster, variants: [], size: 0,
+  };
+}

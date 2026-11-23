@@ -3,7 +3,7 @@ import { icon, LOGO } from '../shared/icons.js';
 import { $, $$, esc, toast, hydrateIcons } from '../shared/ui.js';
 import { getSettings, saveSettings, applyTheme, onSettingsChanged } from '../shared/settings.js';
 import { formatBytes, formatDuration, formatBitrate, hostOf, cleanTitle } from '../shared/media.js';
-import { youtubeId } from '../shared/sites.js';
+import { youtubeId, xStatusId } from '../shared/sites.js';
 
 const params = new URLSearchParams(location.search);
 const MODE = params.get('mode') === 'panel' ? 'panel' : 'popup';
@@ -57,26 +57,54 @@ async function init() {
   $('#page-host').textContent = hostOf(state.tab?.url || '') || cleanTitle(state.tab?.title || '') || ' ';
 
   bindChrome();
-  ({ [`imgscan:${state.tabId}`]: state.imgScan = null } = await api.storage.session.get(`imgscan:${state.tabId}`));
+  state.imgScan = (await sessionGet(`imgscan:${state.tabId}`)) || null;
   await refresh();
   renderActivity();
   if (AUTO_SCAN) startImageScan();
 
   api.storage.onChanged.addListener((changes, area) => {
-    if (area === 'session' && changes[`tab:${state.tabId}`]) {
-      state.items = changes[`tab:${state.tabId}`].newValue?.items || [];
-      render();
-    }
-    if (area === 'session' && changes[`imgscan:${state.tabId}`]) {
-      state.imgScan = changes[`imgscan:${state.tabId}`].newValue || null;
-      renderImageProgress();
-      if (state.imgScan?.state === 'done' && state.filter === 'image') {
-        const n = state.imgScan.found || 0;
-        toast(n ? `Found ${n} full-size image${n > 1 ? 's' : ''}` : 'No full-size images found');
-      }
-    }
+    if (area === 'session' && changes[`tab:${state.tabId}`]) setItems(changes[`tab:${state.tabId}`].newValue?.items || []);
+    if (area === 'session' && changes[`imgscan:${state.tabId}`]) setImageScan(changes[`imgscan:${state.tabId}`].newValue || null);
     if (area === 'local' && changes.downloads) renderActivity(changes.downloads.newValue);
   });
+  // Firefox gives the in-page panel (an extension frame inside a web page) no
+  // session storage and no session change events: ask the background instead.
+  if (!HAS_SESSION) setInterval(pollSession, 900);
+}
+
+const HAS_SESSION = !!api.storage.session;
+
+async function sessionGet(key) {
+  if (HAS_SESSION) return (await api.storage.session.get(key))[key];
+  return call('session:get', { key }).catch(() => null);
+}
+
+let lastItems = '';
+let lastScan = '';
+function setItems(items) {
+  lastItems = JSON.stringify(items);
+  state.items = items;
+  render();
+}
+
+function setImageScan(scan) {
+  lastScan = JSON.stringify(scan);
+  state.imgScan = scan;
+  renderImageProgress();
+  if (state.imgScan?.state === 'done' && state.filter === 'image') {
+    const n = state.imgScan.found || 0;
+    toast(n ? `Found ${n} full-size image${n > 1 ? 's' : ''}` : 'No full-size images found');
+  }
+}
+
+async function pollSession() {
+  if (document.hidden) return;
+  const [items, scan] = await Promise.all([
+    call('media:list', { tabId: state.tabId }).catch(() => null),
+    sessionGet(`imgscan:${state.tabId}`),
+  ]);
+  if (items && JSON.stringify(items) !== lastItems) setItems(items);
+  if (JSON.stringify(scan ?? null) !== lastScan) setImageScan(scan ?? null);
 }
 
 function bindChrome() {
@@ -129,8 +157,8 @@ function closePanel() {
 }
 
 async function refresh() {
-  state.items = (await call('media:list', { tabId: state.tabId })) || [];
-  render();
+  setItems((await call('media:list', { tabId: state.tabId })) || []);
+  lastScan = JSON.stringify(state.imgScan ?? null);
 }
 
 async function rescan() {
@@ -156,6 +184,8 @@ async function rescan() {
 const GENERIC = /^(index|master|playlist|manifest|video|audio|media|chunklist.*|stream|hls|dash|output|file|download|main|default|source|mp4|play|get|view|\d+)$/i;
 
 function displayName(item) {
+  // yt-dlp's title is the real one; only page titles need tidying.
+  if (item.source === 'ytdlp' && item.info === 'ready' && item.title) return item.title;
   const name = (item.name || '').replace(/[_+]+/g, ' ').trim();
   const meaningful = name.length >= 4 && /[a-z]/i.test(name) && !GENERIC.test(name) && !/^[a-f0-9-]{12,}$/i.test(name);
   const page = cleanTitle(item.title);
@@ -167,6 +197,7 @@ function displayName(item) {
 
 function isCurrent(item) {
   if (!state.tab?.url || !item.pageUrl) return true;
+  if (item.statusId) return hostOf(item.pageUrl) === hostOf(state.tab.url); // X is one long page
   const here = youtubeId(state.tab.url);
   if (item.videoId && here) return item.videoId === here;
   const strip = (u) => u.split('#')[0];
@@ -176,8 +207,10 @@ function isCurrent(item) {
 function render() {
   const restricted = state.tab?.url && !/^(https?|file):/.test(state.tab.url) && !state.items.length;
   const images = state.items.filter((i) => i.kind === 'image');
-  const media = state.items.filter((i) => i.kind !== 'image');
-  const counts = { all: media.length, video: 0, audio: 0, stream: 0, image: images.length };
+  // X streams in two pieces (silent video + audio); its yt-dlp card saves one MP4 instead.
+  const xCards = state.items.some((i) => i.statusId && i.info !== 'missing');
+  const media = state.items.filter((i) => i.kind !== 'image' && !(xCards && /^https:\/\/video\.twimg\.com\//.test(i.url)));
+  const counts ={ all: media.length, video: 0, audio: 0, stream: 0, image: images.length };
   for (const i of media) counts[i.kind] = (counts[i.kind] || 0) + 1;
   for (const el of $$('[data-count]')) el.textContent = counts[el.dataset.count] || '';
 
@@ -225,6 +258,10 @@ function render() {
 
 function rank(i) {
   if (i.drm) return 0;
+  if (i.source === 'ytdlp') {
+    // YouTube / X: the video the page is about; the post being viewed comes first.
+    return i.statusId && i.statusId === xStatusId(state.tab?.url || '') ? 5 : 4;
+  }
   if (i.kind === 'stream') return 3;
   if (i.kind === 'video') return 2 + Math.min((i.size || 0) / 1e9, 0.9);
   return 1 + Math.min((i.size || 0) / 1e9, 0.9);
@@ -330,15 +367,24 @@ function cardHtml(item) {
   </article>`;
 }
 
+const infoObserver = new IntersectionObserver((entries) => {
+  for (const e of entries) {
+    if (!e.isIntersecting) continue;
+    infoObserver.unobserve(e.target);
+    const id = e.target.dataset.id;
+    if (state.infoAsked.has(id)) continue;
+    state.infoAsked.add(id);
+    call('site:info', { tabId: state.tabId, id }).catch(() => {});
+  }
+}, { rootMargin: '120px 0px' });
+
 function bindCards() {
+  infoObserver.disconnect();
   for (const card of $$('.card')) {
     const item = state.items.find((i) => i.id === card.dataset.id);
     if (!item) continue;
-    if (item.source === 'ytdlp' && !item.info && !state.infoAsked.has(item.id)) {
-      // Read the real qualities now (the helper runs yt-dlp; takes a few seconds).
-      state.infoAsked.add(item.id);
-      call('site:info', { tabId: state.tabId, id: item.id }).catch(() => {});
-    }
+    // Read the real qualities once the card is on screen (each look-up runs yt-dlp for a few seconds).
+    if (item.source === 'ytdlp' && !item.info && !state.infoAsked.has(item.id)) infoObserver.observe(card);
     for (const q of $$('.q', card)) {
       q.onclick = () => {
         state.selected.set(item.id, q.dataset.variant);
