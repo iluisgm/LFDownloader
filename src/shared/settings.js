@@ -16,6 +16,7 @@ export const DEFAULT_SETTINGS = {
   floatingButton: true,
   disabledSites: [], // hostnames where the floating button is hidden
   segmentConcurrency: 6,
+  imageSaveMode: '', // '' = best available: 'folder' (Chromium) or 'zip'; or 'files'
   notifyOnComplete: true,
 };
 

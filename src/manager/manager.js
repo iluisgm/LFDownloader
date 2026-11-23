@@ -5,9 +5,11 @@ import { getSettings, saveSettings, applyTheme, onSettingsChanged } from '../sha
 import { formatBytes, formatDuration, formatSpeed, formatBitrate, hostOf } from '../shared/media.js';
 import { HlsJob } from './hls-job.js';
 import { FileJob } from './file-job.js';
+import { ImageJob } from './image-job.js';
 
 const MAX_PARALLEL_STREAMS = 2;
-const ACTIVE = ['queued', 'downloading', 'saving'];
+const ACTIVE = ['queued', 'downloading', 'saving', 'needs-folder'];
+const JOB_TYPES = ['stream', 'fetch', 'imgjob'];
 
 const state = {
   records: [],
@@ -17,6 +19,7 @@ const state = {
   jobs: new Map(), // recordId -> HlsJob
   fileLive: new Map(), // recordId -> { received, total, speed }
   cleanup: new Map(), // downloadId -> { url, sink }
+  dirs: new Map(), // recordId -> folder picked for an image job
   settings: null,
 };
 
@@ -59,7 +62,7 @@ async function init() {
 
 async function recoverInterrupted() {
   for (const r of state.records) {
-    if ((r.type === 'stream' || r.type === 'fetch') && (r.status === 'downloading' || (r.status === 'saving' && !r.downloadId))) {
+    if (JOB_TYPES.includes(r.type) && (r.status === 'downloading' || (r.status === 'saving' && !r.downloadId))) {
       await call('records:update', { id: r.id, patch: { status: 'interrupted', error: 'The manager window was closed' } });
     }
   }
@@ -72,12 +75,19 @@ async function recoverInterrupted() {
 
 function processQueue() {
   const running = state.jobs.size;
-  const queued = state.records.filter((r) => (r.type === 'stream' || r.type === 'fetch') && r.status === 'queued' && !state.jobs.has(r.id)).reverse();
+  const queued = state.records.filter((r) => JOB_TYPES.includes(r.type) && r.status === 'queued' && !state.jobs.has(r.id)).reverse();
   for (const rec of queued.slice(0, Math.max(0, MAX_PARALLEL_STREAMS - running))) startJob(rec);
 }
 
 async function startJob(rec) {
-  const job = rec.type === 'fetch' ? new FileJob(rec) : new HlsJob(rec, { concurrency: state.settings.segmentConcurrency });
+  if (rec.type === 'imgjob' && rec.mode === 'folder' && !state.dirs.has(rec.id)) {
+    // The folder picked earlier was lost (window reloaded): ask again.
+    await call('records:update', { id: rec.id, patch: { status: 'needs-folder' } });
+    return;
+  }
+  const job = rec.type === 'fetch' ? new FileJob(rec)
+    : rec.type === 'imgjob' ? new ImageJob(rec, { dir: state.dirs.get(rec.id) })
+    : new HlsJob(rec, { concurrency: state.settings.segmentConcurrency });
   state.jobs.set(rec.id, job);
   $('#keep-open').hidden = false;
   await call('records:update', { id: rec.id, patch: { status: 'downloading', error: '', startedAt: Date.now() } });
@@ -87,6 +97,16 @@ async function startJob(rec) {
     const results = await job.run();
     job.stats.phase = 'Saving';
     updateActiveRow(rec.id);
+    if (rec.type === 'imgjob' && rec.mode === 'folder') {
+      const s = job.stats;
+      await call('records:update', {
+        id: rec.id,
+        patch: { status: 'completed', finishedAt: Date.now(), size: s.bytes, done: s.done, failed: s.failed, progress: 1 },
+      });
+      toast(`Saved ${s.done} picture${s.done === 1 ? '' : 's'} to "${rec.folderName}"`);
+      call('records:notify', { id: rec.id });
+      return;
+    }
     const ids = [];
     let total = 0;
     for (const res of results) {
@@ -102,7 +122,10 @@ async function startJob(rec) {
     }
     await call('records:update', {
       id: rec.id,
-      patch: { status: 'saving', downloadId: ids[0], extraDownloadIds: ids.slice(1), size: total, progress: 1, duration: job.stats.seconds || rec.duration },
+      patch: {
+        status: 'saving', downloadId: ids[0], extraDownloadIds: ids.slice(1), size: total, progress: 1, duration: job.stats.seconds || rec.duration,
+        ...(rec.type === 'imgjob' ? { done: job.stats.done, failed: job.stats.failed } : {}),
+      },
     });
   } catch (e) {
     const canceled = e.name === 'AbortError' && !job.failure;
@@ -240,14 +263,16 @@ function tile(r, stateBadge = '') {
 
 function fileName(r) {
   if (r.type === 'batch') return `${r.title} · ${r.total} image${r.total === 1 ? '' : 's'}`;
+  if (r.type === 'imgjob') return `${r.title} · ${r.total} image${r.total === 1 ? '' : 's'}${r.mode === 'zip' ? ' (ZIP)' : ''}`;
   return (r.savedPath || r.filename || r.title || '').split(/[\\/]/).pop();
 }
 
 function activeRow(r) {
   const job = state.jobs.get(r.id);
   const isStream = r.type === 'stream';
-  const queued = r.status === 'queued';
+  const queued = r.status === 'queued' || r.status === 'needs-folder';
   const ops = [];
+  if (r.status === 'needs-folder') ops.push(`<button class="btn btn-primary btn-sm" data-op="pick">${icon('folder', 14)}Choose folder…</button>`);
   if (isStream && job?.stats.live) ops.push(`<button class="btn btn-soft btn-sm" data-op="stop">${icon('stop', 13)}Stop &amp; save</button>`);
   if (!queued && r.type !== 'batch') ops.push(`<button class="icon-btn" data-op="pause" title="Pause">${icon('pause', 17)}</button>`);
   ops.push(`<button class="icon-btn" data-op="cancel" title="Cancel">${icon('x', 17)}</button>`);
@@ -255,8 +280,8 @@ function activeRow(r) {
     ${tile(r)}
     <div class="body">
       <div class="name" title="${esc(fileName(r))}">${esc(fileName(r))}</div>
-      <div class="sub"><span class="phase" data-f="phase">${queued ? 'Waiting in queue' : 'Starting…'}</span><span class="sep"></span><span>${esc([r.format, r.quality].filter(Boolean).join(' · '))}</span><span class="sep"></span><span class="num" data-f="bytes"></span><span class="num" data-f="speed"></span><span class="num" data-f="eta"></span></div>
-      <div class="progress ${queued ? 'indeterminate' : ''}" data-f="bar"><i></i></div>
+      <div class="sub"><span class="phase" data-f="phase">${r.status === 'needs-folder' ? 'Pick a folder to save the pictures in' : queued ? 'Waiting in queue' : 'Starting…'}</span><span class="sep"></span><span>${esc([r.format, r.quality].filter(Boolean).join(' · '))}</span><span class="sep"></span><span class="num" data-f="bytes"></span><span class="num" data-f="speed"></span><span class="num" data-f="eta"></span></div>
+      <div class="progress ${r.status === 'needs-folder' ? '' : queued ? 'indeterminate' : ''}" data-f="bar" ${r.status === 'needs-folder' ? 'hidden' : ''}><i></i></div>
     </div>
     <div class="ops"><span class="pct" data-f="pct"></span>${ops.join('')}</div>
   </div>`;
@@ -276,6 +301,17 @@ function updateActiveRow(id) {
     const live = s.live;
     const pct = !live && s.total ? s.done / s.total : 0;
     set('phase', s.phase === 'Downloading' ? (live ? 'Recording live' : 'Downloading') : s.phase);
+    if (s.unit === 'images') {
+      const finished = s.done + (s.failed || 0);
+      set('bytes', `${s.done} of ${s.total} pictures${s.failed ? ` · ${s.failed} failed` : ''}${s.bytes ? ` · ${formatBytes(s.bytes)}` : ''}`);
+      set('speed', s.speed ? `· ${formatSpeed(s.speed)}` : '');
+      set('eta', '');
+      set('pct', `${Math.floor((s.total ? finished / s.total : 0) * 100)}%`);
+      bar.classList.toggle('indeterminate', s.phase === 'Preparing' || s.phase === 'Creating ZIP' || s.phase === 'Saving');
+      fill.style.width = `${(s.total ? finished / s.total : 0) * 100}%`;
+      set('phase', s.phase);
+      return;
+    }
     if (s.unit === 'bytes') set('bytes', s.total ? `${formatBytes(s.bytes) || '0 B'} of ${formatBytes(s.total)}` : formatBytes(s.bytes) || '0 B');
     else set('bytes', live ? `${formatBytes(s.bytes) || '0 B'} · ${formatDuration(s.seconds)}` : `${formatBytes(s.bytes) || '0 B'}${s.total ? ` · ${s.done}/${s.total} parts` : ''}`);
     set('speed', s.speed ? `· ${formatSpeed(s.speed)}` : '');
@@ -337,7 +373,8 @@ function doneRow(r) {
   const badge = ok ? `<span class="state ok">${icon('check', 10)}</span>` : `<span class="state bad">${icon('x', 10)}</span>`;
   const sub = [];
   sub.push(esc([r.format, r.quality].filter(Boolean).join(' · ')));
-  if (r.type === 'batch' && r.failed) sub.push(`<span class="err">${r.failed} failed</span>`);
+  if ((r.type === 'batch' || r.type === 'imgjob') && r.failed) sub.push(`<span class="err">${r.failed} failed</span>`);
+  if (r.type === 'imgjob' && r.mode === 'folder' && ok) sub.push(`Saved to the folder “${esc(r.folderName)}”`);
   if (r.size) sub.push(`<span class="num">${formatBytes(r.size)}</span>`);
   if (r.duration) sub.push(`<span class="num">${formatDuration(r.duration)}</span>`);
   sub.push(esc(hostOf(r.pageUrl || r.url)));
@@ -414,6 +451,13 @@ async function onRowClick(e) {
   const job = state.jobs.get(id);
   try {
     switch (btn.dataset.op) {
+      case 'pick': {
+        if (!('showDirectoryPicker' in window)) throw new Error('This browser cannot pick folders. Use ZIP instead.');
+        const dir = await window.showDirectoryPicker({ id: 'lfd-images', mode: 'readwrite', startIn: 'downloads' });
+        state.dirs.set(id, dir);
+        await call('records:update', { id, patch: { status: 'queued' } });
+        break;
+      }
       case 'pause':
         if (job) job.pause(); else if (r.downloadId != null) await api.downloads.pause(r.downloadId);
         updateActiveRow(id);

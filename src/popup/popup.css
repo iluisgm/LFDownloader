@@ -237,3 +237,27 @@ body.panel .app {
   border-top: 1px solid var(--line); background: var(--bg-elev);
 }
 .img-actions .btn-primary { flex: 1; }
+
+.img-bar-actions { display: flex; align-items: center; gap: 2px; }
+.mode-wrap { position: relative; }
+.mode-btn { gap: 6px; padding: 0 9px; height: 34px; }
+.mode-btn .ico:last-child { opacity: .6; margin-left: -2px; }
+.mode-menu {
+  position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 20; width: 300px; padding: 6px;
+  background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: 14px; box-shadow: var(--shadow-lg);
+  animation: menu-in .18s var(--ease);
+}
+.mode-menu button {
+  width: 100%; display: grid; grid-template-columns: 30px 1fr 16px; align-items: center; gap: 8px; text-align: left;
+  padding: 8px; border-radius: 10px; color: var(--text);
+}
+.mode-menu button:hover { background: var(--hover); }
+.mode-menu .mi {
+  width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
+  background: var(--surface-3); color: var(--text-2);
+}
+.mode-menu [aria-checked="true"] .mi { background: var(--grad); color: var(--on-accent); }
+.mode-menu b { display: block; font-size: 12.5px; font-weight: 650; }
+.mode-menu small { display: block; font-size: 11px; color: var(--text-3); line-height: 1.35; margin-top: 1px; }
+.mode-menu .ck { color: var(--accent-2); opacity: 0; }
+.mode-menu [aria-checked="true"] .ck { opacity: 1; }

@@ -1,7 +1,7 @@
 import { api, call } from '../shared/api.js';
 import { icon, LOGO } from '../shared/icons.js';
 import { $, $$, esc, toast, hydrateIcons } from '../shared/ui.js';
-import { getSettings, applyTheme, onSettingsChanged } from '../shared/settings.js';
+import { getSettings, saveSettings, applyTheme, onSettingsChanged } from '../shared/settings.js';
 import { formatBytes, formatDuration, formatBitrate, hostOf, cleanTitle } from '../shared/media.js';
 
 const params = new URLSearchParams(location.search);
@@ -31,8 +31,9 @@ init().catch((e) => {
 
 async function init() {
   const settings = await getSettings();
+  state.settings = settings;
   applyTheme(settings);
-  onSettingsChanged(applyTheme);
+  onSettingsChanged((s) => { state.settings = s; applyTheme(s); renderModeButton(); });
   document.body.classList.toggle('panel', MODE === 'panel');
   $('#logo').outerHTML = LOGO;
   hydrateIcons();
@@ -98,6 +99,11 @@ function bindChrome() {
   $('#img-selall').onclick = toggleSelectAll;
   $('#img-download').onclick = downloadImages;
   $('#img-clear').onclick = async () => { state.imgSel.clear(); await call('images:clear', { tabId: state.tabId }); };
+  $('#img-mode').onclick = toggleModeMenu;
+  $('#btn-magic').onclick = startMagic;
+  $('#img-magic').onclick = startMagic;
+  $('#img-magic-first').onclick = startMagic;
+  renderModeButton();
 
   for (const b of $$('#filters [data-filter]')) b.onclick = () => setFilter(b.dataset.filter);
   setFilter(state.filter, false);
@@ -456,9 +462,10 @@ function renderImages(images) {
   $('#img-empty').hidden = images.length > 0 || running;
   $('#img-actions').hidden = !images.length;
   $('.img-bar').hidden = !images.length;
+  const fromSelection = state.imgScan?.scope === 'selection';
   $('#img-count').textContent = state.imgSel.size
     ? `${state.imgSel.size} of ${images.length} selected`
-    : `${images.length} image${images.length === 1 ? '' : 's'}`;
+    : `${images.length} image${images.length === 1 ? '' : 's'}${fromSelection ? ' in your box' : ''}`;
   const all = images.length && state.imgSel.size === images.length;
   $('#img-selall').setAttribute('aria-checked', all ? 'true' : state.imgSel.size ? 'mixed' : 'false');
   const label = $('#img-download span');
@@ -502,12 +509,58 @@ function toggleSelectAll() {
   renderImages(images);
 }
 
+const CAN_PICK_FOLDER = 'showDirectoryPicker' in window;
+const SAVE_MODES = {
+  folder: { icon: 'folder', short: 'Folder', title: 'Into a folder', desc: 'Pick a folder once. Every picture goes straight in.' },
+  zip: { icon: 'zip', short: 'ZIP', title: 'As one ZIP file', desc: 'A single file, so at most one save dialog.' },
+  files: { icon: 'images', short: 'Files', title: 'As separate downloads', desc: 'Your browser may ask where to save every picture.' },
+};
+
+function saveMode() {
+  let m = state.settings?.imageSaveMode || (CAN_PICK_FOLDER ? 'folder' : 'zip');
+  if (m === 'folder' && !CAN_PICK_FOLDER) m = 'zip';
+  return SAVE_MODES[m] ? m : 'zip';
+}
+
+function renderModeButton() {
+  const m = SAVE_MODES[saveMode()];
+  $('#img-mode').innerHTML = `${icon(m.icon, 15)}${m.short}${icon('chevup', 13)}`;
+}
+
+function toggleModeMenu(e) {
+  e.stopPropagation();
+  const open = $('.mode-menu');
+  if (open) return open.remove();
+  const cur = saveMode();
+  const menu = document.createElement('div');
+  menu.className = 'mode-menu';
+  menu.setAttribute('role', 'menu');
+  menu.innerHTML = Object.entries(SAVE_MODES)
+    .filter(([k]) => k !== 'folder' || CAN_PICK_FOLDER)
+    .map(([k, m]) => `<button role="menuitemradio" data-mode="${k}" aria-checked="${k === cur}">
+      <span class="mi">${icon(m.icon, 16)}</span><span><b>${m.title}</b><small>${m.desc}</small></span><span class="ck">${icon('check', 15)}</span>
+    </button>`).join('');
+  $('.mode-wrap').append(menu);
+  menu.onclick = async (ev) => {
+    const b = ev.target.closest('[data-mode]');
+    if (!b) return;
+    menu.remove();
+    state.settings = await saveSettings({ imageSaveMode: b.dataset.mode });
+    renderModeButton();
+  };
+  setTimeout(() => document.addEventListener('click', () => menu.remove(), { once: true }), 0);
+}
+
 async function downloadImages() {
   const btn = $('#img-download');
   btn.disabled = true;
   try {
-    const res = await call('images:download', { tabId: state.tabId, ids: [...state.imgSel] });
-    toast(`Saving ${res.total} image${res.total > 1 ? 's' : ''} to ${res.folder}`, { ms: 3400 });
+    const mode = saveMode();
+    const res = await call('images:download', { tabId: state.tabId, ids: [...state.imgSel], mode });
+    const n = `${res.total} picture${res.total > 1 ? 's' : ''}`;
+    toast(mode === 'folder' ? `Choose a folder for ${n} in the download manager`
+      : mode === 'zip' ? `Packing ${n} into one ZIP…`
+      : `Saving ${n} to ${res.folder}`, { ms: 3400 });
     state.imgSel.clear();
     renderImages(state.items.filter((i) => i.kind === 'image'));
   } catch (e) {
@@ -515,4 +568,10 @@ async function downloadImages() {
   } finally {
     btn.disabled = false;
   }
+}
+
+/** Close this UI and let the user draw a box on the page. */
+async function startMagic() {
+  await call('magic:start', { tabId: state.tabId });
+  if (MODE === 'popup') window.close();
 }

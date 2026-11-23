@@ -108,6 +108,88 @@ try {
   }
   check(imgs.length && imgs.every((f) => statSync(f).size > 50_000), 'every saved image is the full-size file');
 
+  // ── magic select: draw a box around photos 1-3 only ──
+  const mpage = await browser.newPage();
+  await mpage.goto('http://localhost:8765/gallery.html', { waitUntil: 'load' });
+  await sleep(700);
+  const mtab = await sw.evaluate(async () => (await chrome.tabs.query({ active: true })).find((t) => t.url?.includes('gallery.html'))?.id);
+  await popup.evaluate((id) => chrome.runtime.sendMessage({ type: 'magic:start', tabId: id }), mtab);
+  await mpage.bringToFront();
+  await sleep(500);
+  const boxes = await mpage.evaluate(() => [...document.querySelectorAll('.grid img')].slice(0, 3).map((i) => { const r = i.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; }));
+  const [x0, y0] = [boxes[0][0] - 10, boxes[0][1] - 10];
+  const [x1, y1] = [boxes[2][2] + 6, boxes[2][3] + 6];
+  await mpage.mouse.move(x0, y0);
+  await mpage.mouse.down();
+  await mpage.mouse.move((x0 + x1) / 2, (y0 + y1) / 2, { steps: 4 });
+  await mpage.mouse.move(x1, y1, { steps: 4 });
+  await sleep(250);
+  await mpage.screenshot({ path: join(out, 'magic-drag.png') });
+  await mpage.mouse.up();
+  let mscan;
+  for (let i = 0; i < 30; i++) {
+    await sleep(400);
+    mscan = (await sw.evaluate((id) => chrome.storage.session.get(`imgscan:${id}`), mtab))[`imgscan:${mtab}`];
+    if (mscan?.state === 'done') break;
+  }
+  await sleep(600);
+  await mpage.screenshot({ path: join(out, 'magic-result.png') });
+  const mitems = ((await sw.evaluate((id) => chrome.storage.session.get(`tab:${id}`), mtab))[`tab:${mtab}`]?.items || []).filter((i) => i.kind === 'image');
+  const mnames = mitems.map((i) => basename(new URL(i.url).pathname)).sort();
+  check(mscan?.scope === 'selection' && JSON.stringify(mnames) === JSON.stringify(['photo1.jpg', 'photo2.jpg', 'photo3.jpg']),
+    `magic select box → only the boxed photos (${mnames.join(', ')})`);
+  await mpage.close();
+
+  // ── one ZIP file (one save dialog at most) ──
+  const waitRec = async (id, ms = 30000) => {
+    let r;
+    for (let i = 0; i < ms / 400; i++) {
+      await sleep(400);
+      r = (await sw.evaluate(async () => (await chrome.storage.local.get('downloads')).downloads || [])).find((x) => x.id === id);
+      if (r && !['queued', 'downloading', 'saving', 'needs-folder'].includes(r.status)) break;
+    }
+    return r;
+  };
+  const zres = await popup.evaluate((id) => chrome.runtime.sendMessage({ type: 'images:download', tabId: id, ids: [], mode: 'zip' }), tabId);
+  const zrec = await waitRec(zres?.data?.id);
+  check(zrec?.status === 'completed' && zrec.done === 10, `ZIP job → ${zrec?.status} (${zrec?.done}/${zrec?.total})${zrec?.error ? ` ${zrec.error}` : ''}`);
+  const zips = [];
+  const walkZ = (d) => { for (const f of readdirSync(d)) { const q = join(d, f); statSync(q).isDirectory() ? walkZ(q) : f.endsWith('.zip') && zips.push(q); } };
+  walkZ(dl);
+  if (zips[0]) {
+    const unz = join(out, 'unzipped');
+    execFileSync('python', ['-c', 'import sys,zipfile; z=zipfile.ZipFile(sys.argv[1]); assert z.testzip() is None; z.extractall(sys.argv[2])', zips[0], unz]);
+    const inside = readdirSync(unz);
+    const okDims = inside.filter((f) => execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=width,height', '-of', 'csv=p=0', join(unz, f)]).toString().trim() === '1600,1200');
+    check(inside.length === 10 && okDims.length === 10, `${basename(zips[0])} is a valid ZIP with ${okDims.length}/10 full-size pictures`);
+  } else {
+    check(false, 'ZIP file on disk');
+  }
+
+  // ── into a folder picked once (native picker simulated with an OPFS folder) ──
+  const fres = await popup.evaluate((id) => chrome.runtime.sendMessage({ type: 'images:download', tabId: id, ids: [], mode: 'folder' }), tabId);
+  await sleep(1200);
+  const mgrPage = (await browser.pages()).find((p) => p.url().includes('manager/manager.html'));
+  check(!!mgrPage, 'download manager opened to ask for a folder');
+  await mgrPage.bringToFront();
+  await mgrPage.setViewport({ width: 1060, height: 560, deviceScaleFactor: 2 });
+  await sleep(500);
+  await mgrPage.screenshot({ path: join(out, 'manager-pick-folder.png') });
+  await mgrPage.evaluate(() => {
+    window.showDirectoryPicker = async () => (await navigator.storage.getDirectory()).getDirectoryHandle('picked', { create: true });
+    document.querySelector('[data-op="pick"]').click();
+  });
+  const frec = await waitRec(fres?.data?.id);
+  check(frec?.status === 'completed' && frec.done === 10, `folder job → ${frec?.status} (${frec?.done}/${frec?.total})${frec?.error ? ` ${frec.error}` : ''}`);
+  const written = await mgrPage.evaluate(async (name) => {
+    const dir = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('picked')).getDirectoryHandle(name);
+    const out = [];
+    for await (const [n, h] of dir.entries()) out.push([n, (await h.getFile()).size]);
+    return out;
+  }, frec?.folderName);
+  check(written.length === 10 && written.every(([, size]) => size > 50_000), `10 pictures written into the picked folder “${frec?.folderName}” (${written.length})`);
+  await mgrPage.screenshot({ path: join(out, 'manager-modes.png') });
+
   // Hotlink-protected gallery: every image needs the page's Referer.
   const prot = await browser.newPage();
   await prot.goto('http://localhost:8765/gallery-protected.html', { waitUntil: 'load' });

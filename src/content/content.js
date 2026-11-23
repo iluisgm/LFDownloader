@@ -136,13 +136,15 @@
     return Math.max(r.width, r.height) < 48 && nat < 64;
   }
 
-  function collectImageCandidates() {
+  /** @param only  optional Set of elements (magic selection) to limit the scan to */
+  function collectImageCandidates(only = null) {
     const direct = new Map(); // full image url -> item
     const viewers = new Map(); // viewer page url -> thumb
     const here = location.href.split('#')[0];
     const origin = location.origin + '/';
 
     for (const a of document.querySelectorAll('a[href]')) {
+      if (only && !only.has(a)) continue;
       const t = thumbOf(a);
       if (!t?.src || t.src.startsWith('data:') && !t.img) continue;
       if (looksLikeChrome(t.img || t.box || a, t.src)) continue;
@@ -156,7 +158,7 @@
     }
     // Big pictures shown on the page itself (not inside a link).
     for (const img of document.images) {
-      if (img.closest('a[href]')) continue;
+      if (img.closest('a[href]') || (only && !only.has(img))) continue;
       const src = X.imgSource({
         src: img.currentSrc || img.src, srcset: img.srcset,
         'data-src': img.dataset.src || '', 'data-original': img.dataset.original || '', 'data-full': img.dataset.full || '',
@@ -165,12 +167,13 @@
       const w = img.naturalWidth;
       const h = img.naturalHeight;
       const r = img.getBoundingClientRect();
-      if ((w >= 300 && h >= 300) || (r.width >= 300 && r.height >= 300)) {
+      const min = only ? 40 : 300; // a hand-picked picture can be small
+      if ((w >= min && h >= min) || (r.width >= min && r.height >= min)) {
         if (!direct.has(src)) direct.set(src, { url: src, thumb: img.currentSrc || src, width: w, height: h });
       }
     }
     // The page *is* a picture (opened from a thumbnail).
-    if (document.contentType?.startsWith('image/')) direct.set(here, { url: here, thumb: here });
+    if (!only && document.contentType?.startsWith('image/')) direct.set(here, { url: here, thumb: here });
     return { direct: [...direct.values()], viewers: [...viewers.entries()].slice(0, 400) };
   }
 
@@ -188,15 +191,15 @@
     return X.bestImageFromHtml(await res.text(), res.url || url, thumb);
   }
 
-  async function scanImages() {
+  async function scanImages(cands = null, scope = 'page') {
     if (imageScan.running) return;
     imageScan.running = true;
     imageScan.stop = false;
-    const { direct, viewers } = collectImageCandidates();
+    const { direct, viewers } = cands || collectImageCandidates();
     const total = direct.length + viewers.length;
     let done = direct.length;
     let found = 0;
-    const progress = (state) => send('images:progress', { state, done, total, found });
+    const progress = (state) => send('images:progress', { state, done, total, found, scope });
     let batch = [];
     const flush = () => {
       if (!batch.length) return;
@@ -278,6 +281,39 @@
       background: transparent;
     }
     .panel.show { opacity: 1; transform: none; }
+
+    .magic { position: fixed; inset: 0; pointer-events: auto; cursor: crosshair; background: rgba(5,5,8,.28);
+      animation: mfade .2s ease; touch-action: none; }
+    @keyframes mfade { from { opacity: 0; } }
+    .magic.dragging { background: transparent; }
+    .magic-hint {
+      position: fixed; left: 50%; top: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px;
+      padding: 9px 14px 9px 11px; border-radius: 12px; pointer-events: none; white-space: nowrap;
+      background: rgba(14,16,24,.9); backdrop-filter: blur(14px); color: rgba(255,255,255,.88);
+      font: 500 13px/1.2 "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+      box-shadow: 0 12px 40px -10px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.08);
+    }
+    .magic-hint b { color: #fff; font-weight: 700; }
+    .magic-hint .wand { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; color: var(--on, #fff);
+      background: linear-gradient(135deg, var(--a1, #8B6CFF), var(--a2, #5B7CFA) 55%, var(--a3, #22D3EE)); }
+    .magic-hint .wand svg { width: 15px; height: 15px; }
+    .magic-hint kbd { font: 600 11px ui-monospace, Consolas, monospace; padding: 2px 6px; border-radius: 5px; border: 1px solid rgba(255,255,255,.25); }
+    .magic-box {
+      position: fixed; pointer-events: none; border-radius: 6px;
+      border: 2px solid var(--a2, #5B7CFA); background: color-mix(in srgb, var(--a2, #5B7CFA) 14%, transparent);
+      box-shadow: 0 0 0 9999px rgba(5,5,8,.25);
+    }
+    .magic-count {
+      position: absolute; right: -2px; top: calc(100% + 8px); padding: 5px 9px; border-radius: 8px; white-space: nowrap;
+      font: 700 12px/1 "Inter", "Segoe UI", system-ui, sans-serif; color: var(--on, #fff);
+      background: linear-gradient(135deg, var(--a1, #8B6CFF), var(--a2, #5B7CFA));
+      box-shadow: 0 8px 20px -6px color-mix(in srgb, var(--a2, #5B7CFA) 80%, transparent);
+    }
+    .magic-mark {
+      position: fixed; pointer-events: none; border-radius: 6px;
+      outline: 2px solid var(--a1, #8B6CFF); outline-offset: 1px; background: color-mix(in srgb, var(--a1, #8B6CFF) 18%, transparent);
+    }
+    .magic-mark.video { outline-color: #fff; outline-style: dashed; }
   `;
   const ARROW = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>';
   const XICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>';
@@ -409,6 +445,139 @@
     placeFab();
   });
 
+  // ───────────────────────── magic selector ─────────────────────────
+  // Draw a box on the page: only the pictures/videos inside it are collected.
+
+  const WAND = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 20 11-11"/><path d="m13 7 2-2 2 2-2 2"/><path d="M18 3v2M21 6h-2M18 9v-1M14 3h1"/><path d="M20 13v2M19 14h2M8 3v2M7 4h2"/></svg>';
+  let magic = null;
+
+  /** Everything on the page that can be picked, with its position in page coordinates. */
+  function magicTargets() {
+    const out = [];
+    const sx = scrollX;
+    const sy = scrollY;
+    const push = (el, kind, box = el) => {
+      const r = box.getBoundingClientRect();
+      if (r.width < 8 || r.height < 8) return;
+      out.push({ el, kind, x: r.left + sx, y: r.top + sy, w: r.width, h: r.height });
+    };
+    for (const a of document.querySelectorAll('a[href]')) {
+      const t = thumbOf(a);
+      if (t?.src) push(a, 'image', t.img || t.box || a);
+    }
+    for (const img of document.images) if (!img.closest('a[href]')) push(img, 'image');
+    for (const v of document.querySelectorAll('video, audio')) push(v, 'video');
+    return out;
+  }
+
+  function inBox(t, b) {
+    const ix = Math.max(0, Math.min(t.x + t.w, b.x + b.w) - Math.max(t.x, b.x));
+    const iy = Math.max(0, Math.min(t.y + t.h, b.y + b.h) - Math.max(t.y, b.y));
+    const cx = t.x + t.w / 2;
+    const cy = t.y + t.h / 2;
+    const centerIn = cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h;
+    return centerIn || (ix * iy) / (t.w * t.h) >= 0.6;
+  }
+
+  function startMagic() {
+    if (!IS_TOP || magic) return;
+    closePanel();
+    hideButton(true);
+    ensureRoot();
+    const layer = document.createElement('div');
+    layer.className = 'magic';
+    layer.innerHTML = `<div class="magic-hint"><span class="wand">${WAND}</span><span><b>Magic select</b> · Drag a box around the pictures or videos you want</span><kbd>Esc</kbd></div>
+      <div class="magic-marks"></div><div class="magic-box" hidden><span class="magic-count"></span></div>`;
+    shadow.querySelector('.wrap').append(layer);
+    magic = { layer, targets: magicTargets(), start: null, last: null, picked: [] };
+
+    const box = layer.querySelector('.magic-box');
+    const marks = layer.querySelector('.magic-marks');
+    const count = layer.querySelector('.magic-count');
+
+    const update = () => {
+      if (!magic?.start) return;
+      const ex = magic.last.x + scrollX;
+      const ey = magic.last.y + scrollY;
+      const b = { x: Math.min(magic.start.x, ex), y: Math.min(magic.start.y, ey), w: Math.abs(ex - magic.start.x), h: Math.abs(ey - magic.start.y) };
+      magic.box = b;
+      Object.assign(box.style, { left: `${b.x - scrollX}px`, top: `${b.y - scrollY}px`, width: `${b.w}px`, height: `${b.h}px` });
+      box.hidden = b.w < 4 && b.h < 4;
+      magic.picked = magic.targets.filter((t) => inBox(t, b));
+      marks.innerHTML = magic.picked.slice(0, 300).map((t) => `<div class="magic-mark ${t.kind}" style="left:${t.x - scrollX}px;top:${t.y - scrollY}px;width:${t.w}px;height:${t.h}px"></div>`).join('');
+      const imgs = magic.picked.filter((t) => t.kind === 'image').length;
+      const vids = magic.picked.length - imgs;
+      count.textContent = [imgs && `${imgs} picture${imgs > 1 ? 's' : ''}`, vids && `${vids} video${vids > 1 ? 's' : ''}`].filter(Boolean).join(' · ') || 'Nothing here yet';
+    };
+
+    layer.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      layer.setPointerCapture?.(e.pointerId);
+      layer.classList.add('dragging');
+      magic.start = { x: e.clientX + scrollX, y: e.clientY + scrollY };
+      magic.last = { x: e.clientX, y: e.clientY };
+      update();
+    });
+    layer.addEventListener('pointermove', (e) => {
+      if (!magic?.start) return;
+      magic.last = { x: e.clientX, y: e.clientY };
+      update();
+    });
+    layer.addEventListener('pointerup', (e) => {
+      if (!magic?.start) return;
+      magic.last = { x: e.clientX, y: e.clientY };
+      update();
+      // A click without dragging picks whatever is under the pointer.
+      if (magic.box.w < 6 && magic.box.h < 6) {
+        const px = e.clientX + scrollX;
+        const py = e.clientY + scrollY;
+        magic.picked = magic.targets.filter((t) => px >= t.x && px <= t.x + t.w && py >= t.y && py <= t.y + t.h).slice(-1);
+      }
+      finishMagic();
+    });
+    // Let the wheel scroll the page so a selection can span more than one screen.
+    layer.addEventListener('wheel', (e) => { e.preventDefault(); scrollBy(e.deltaX, e.deltaY); }, { passive: false });
+    magic.onScroll = () => update();
+    magic.onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); stopMagic(); } };
+    addEventListener('scroll', magic.onScroll, { passive: true });
+    document.addEventListener('keydown', magic.onKey, true);
+  }
+
+  function stopMagic() {
+    if (!magic) return;
+    removeEventListener('scroll', magic.onScroll);
+    document.removeEventListener('keydown', magic.onKey, true);
+    magic.layer.remove();
+    magic = null;
+  }
+
+  async function finishMagic() {
+    const picked = magic.picked;
+    stopMagic();
+    if (!picked.length) return;
+    const images = new Set(picked.filter((t) => t.kind === 'image').map((t) => t.el));
+    const videos = picked.filter((t) => t.kind === 'video').map((t) => t.el);
+
+    // Videos: report direct sources; streaming players show up via the network sniffer.
+    const vItems = [];
+    let focus = '';
+    for (const v of videos) {
+      const srcs = [v.currentSrc, v.src, ...[...v.querySelectorAll('source')].map((s) => s.src)].filter((s) => /^https?:/.test(s || ''));
+      for (const s of srcs) vItems.push({ url: s, poster: v.poster || '', mime: v.tagName === 'AUDIO' ? 'audio/' : '' });
+      focus ||= srcs[0] || '';
+    }
+    if (vItems.length) await send('dom:media', { items: vItems, posters: [] });
+
+    if (images.size) {
+      await send('images:clear', {});
+      openPanel('', 'images');
+      scanImages(collectImageCandidates(images), 'selection');
+    } else {
+      openPanel(focus);
+    }
+  }
+
   // ───────────────────────── panel (top frame) ─────────────────────────
 
   function openPanel(focus = '', view = '', autoScan = false) {
@@ -470,6 +639,11 @@
     }
     if (msg?.type === 'lfd:images-scan' && IS_TOP) {
       scanImages();
+      sendResponse({ ok: true });
+      return false;
+    }
+    if (msg?.type === 'lfd:magic' && IS_TOP) {
+      startMagic();
       sendResponse({ ok: true });
       return false;
     }

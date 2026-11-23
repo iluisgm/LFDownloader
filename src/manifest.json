@@ -75,6 +75,12 @@
         "default": "Alt+Shift+S"
       },
       "description": "Scan this page for media"
+    },
+    "magic-select": {
+      "suggested_key": {
+        "default": "Alt+Shift+M"
+      },
+      "description": "Magic select: draw a box around pictures or videos"
     }
   }
 }

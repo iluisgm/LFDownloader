@@ -6,7 +6,7 @@ import { classify, dedupeKey, nameFromUrl, extOf, hostOf } from '../shared/media
 import { DEFAULT_SETTINGS, getSettings, onSettingsChanged } from '../shared/settings.js';
 import * as store from './store.js';
 import { inspectHls, inspectDash } from './inspect.js';
-import { startDownload, records, ensureManager, notifyDone, startImageBatch, cancelBatch } from './downloads.js';
+import { startDownload, records, ensureManager, notifyDone, startImageBatch, startImageJob, cancelBatch } from './downloads.js';
 import '../content/extract.js'; // defines globalThis.LFDExtract
 import { addHeaderRules, removeHeaderRules } from './headers.js';
 import { createMenus, handleMenuClicks } from './menus.js';
@@ -196,12 +196,26 @@ handleMenuClicks({
   downloadUrl,
   openManager: () => ensureManager(),
   scanImages: (tabId) => openPanel(tabId, '', null, { view: 'images', scanImages: true }),
+  startMagic,
 });
 
+/** Put the page into magic-select mode (injecting the content script if needed). */
+async function startMagic(tabId) {
+  if (tabId == null) return;
+  const msg = { type: 'lfd:magic' };
+  try {
+    await api.tabs.sendMessage(tabId, msg, { frameId: 0 });
+  } catch {
+    await api.scripting.executeScript({ target: { tabId, allFrames: true }, files: CONTENT_FILES }).catch(() => {});
+    await api.tabs.sendMessage(tabId, msg, { frameId: 0 }).catch(() => {});
+  }
+}
+
 api.commands?.onCommand.addListener(async (command) => {
-  if (command !== 'scan-page') return;
   const [tab] = await api.tabs.query({ active: true, currentWindow: true });
-  if (tab) openPanel(tab.id, '', null, { rescan: true });
+  if (!tab) return;
+  if (command === 'scan-page') openPanel(tab.id, '', null, { rescan: true });
+  if (command === 'magic-select') startMagic(tab.id);
 });
 
 /** Probe a pasted URL so the manager can show its qualities. */
@@ -291,9 +305,9 @@ const handlers = {
     }));
     return store.addImages(tabId, clean);
   },
-  async 'images:progress'({ state, done, total, found }, sender) {
+  async 'images:progress'({ state, done, total, found, scope = 'page' }, sender) {
     const tabId = sender.tab?.id;
-    if (tabId != null) await api.storage.session.set({ [`imgscan:${tabId}`]: { state, done, total, found, at: Date.now() } });
+    if (tabId != null) await api.storage.session.set({ [`imgscan:${tabId}`]: { state, done, total, found, scope, at: Date.now() } });
   },
   async 'image:resolve'({ url, thumb }) {
     const res = await fetch(url, { credentials: 'include' });
@@ -303,13 +317,16 @@ const handlers = {
     if (!type.includes('html')) return null;
     return globalThis.LFDExtract.bestImageFromHtml(await res.text(), res.url || url, thumb);
   },
-  async 'images:download'({ tabId, ids }) {
+  async 'images:download'({ tabId, ids, mode = 'files' }) {
     const items = (await store.getItems(tabId)).filter((i) => i.kind === 'image' && (!ids?.length || ids.includes(i.id)));
     if (!items.length) throw new Error('No images selected');
     const info = await tabInfo(tabId);
-    return startImageBatch(items, { title: info.title || items[0].title, pageUrl: info.pageUrl || items[0].pageUrl });
+    const opts = { title: info.title || items[0].title, pageUrl: info.pageUrl || items[0].pageUrl };
+    if (mode === 'zip' || mode === 'folder') return startImageJob(items, { ...opts, mode });
+    return { ...(await startImageBatch(items, opts)), mode: 'files' };
   },
-  async 'images:clear'({ tabId }) {
+  async 'images:clear'({ tabId }, sender) {
+    tabId ??= sender.tab?.id;
     await api.storage.session.remove(`imgscan:${tabId}`);
     return store.patchItems(tabId, (list) => {
       const before = list.length;
@@ -319,6 +336,9 @@ const handlers = {
   },
   async 'batch:cancel'({ id }) {
     return cancelBatch(id);
+  },
+  async 'magic:start'({ tabId }) {
+    return startMagic(tabId);
   },
   async 'panel:open'({ focus }, sender) {
     return openPanel(sender.tab?.id, focus || '');
@@ -361,6 +381,10 @@ const handlers = {
     const { downloads = [] } = await api.storage.local.get('downloads');
     const rec = downloads.find((r) => r.id === id);
     if (!rec) throw new Error('Download not found');
+    if (rec.type === 'imgjob') {
+      await records.update(id, { status: rec.mode === 'folder' ? 'needs-folder' : 'queued', error: '', done: 0, failed: 0 });
+      return ensureManager({ focus: rec.mode === 'folder' });
+    }
     if (rec.type === 'stream' || rec.type === 'fetch') {
       await records.update(id, { status: 'queued', error: '', progress: 0 });
       return ensureManager({ focus: false });

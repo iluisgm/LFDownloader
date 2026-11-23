@@ -8,13 +8,18 @@ A Chrome + Firefox extension that catches the videos, music, streams and gallery
 - **Quality picker.** HLS master playlists become quality chips (1080p, 720p, … audio only) with an estimated file size.
 - **Right-click menu.** *Download this media* on a video/audio element, *Download link with LFDownloader* on media links, and *Scan page for media* anywhere. That last one opens a slide-in panel on the page.
 - **Floating button.** A **Download** button appears when you hover over a video. The × hides it on that site.
-- **Gallery image scan.** Click the images button in the popup, or right-click → *Find full-size images on this page*. For every thumbnail, LFDownloader follows the link to the full-size picture, whether the link points straight at the image file or opens a page that only shows the picture. It also handles viewer pages with extra clutter, lazy-loaded images, other-domain viewers, and big pictures shown on the page itself. Results appear as a selectable grid; download all of them or just the ones you pick, into `LFDownloader/<page title>/`.
+- **Gallery image scan.** Click the images button in the popup, or right-click → *Find full-size images on this page*. For every thumbnail, LFDownloader follows the link to the full-size picture, whether the link points straight at the image file or opens a page that only shows the picture. It also handles viewer pages with extra clutter, lazy-loaded images, other-domain viewers, and big pictures shown on the page itself. Results appear as a selectable grid; download all of them or just the ones you pick.
+- **Magic select.** Click the wand (or right-click → *Magic select*, or <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd>) and drag a box on the page. Only the pictures and videos inside it are collected, highlighted live as you drag, with full-size pictures resolved the same way as the gallery scan. Click without dragging to pick a single item; scroll with the wheel to make a taller box.
+- **No "Save as" for every picture.** Choose how a set of pictures is saved:
+  - *Into a folder* (Chrome, Edge, Brave): pick a folder once and every picture is written straight into it.
+  - *As one ZIP file*: a single file, so at most one save dialog. Works in every browser.
+  - *As separate downloads*: the browser may ask where to save each one if "Ask where to save each file" is on.
 - **Skins.** *Aurora* (violet → cyan), *Crimson* (black & red), *Ocean*, *Emerald*, *Sunset*, or *Custom* with any accent color you pick. The skin also re-colors the toolbar icon, the badge, and the Download button on web pages. Add *Pure black background* for OLED screens.
 - **Download manager window.** Progress, speed, ETA, pause/resume, cancel, retry, search, history, "Add link" (paste any media or `.m3u8` URL), and *Stop & save* for live streams.
 - **Stream engine.** Parallel segment downloads with retries, AES-128 decryption, fMP4 (`EXT-X-MAP`), byte ranges, separate audio tracks, and live recording. Data is written to disk-backed browser storage (OPFS), not RAM.
 - **Referer handling.** Many hosts reject requests without the page's Referer/Origin (hotlink protection). Short-lived `declarativeNetRequest` rules add them to LFDownloader's own requests. If the browser's own download is refused (401/403), LFDownloader fetches the file itself with the page's Referer and saves that instead.
 - **Settings.** Theme (system/dark/light), skin, folder, filename template (`{title} - {quality}`), save-as dialog, detection types, minimum size, parallel connections, notifications.
-- Shortcuts: <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> opens the popup; <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> scans the page.
+- Shortcuts: <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> opens the popup; <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> scans the page; <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd> starts magic select.
 
 **Not supported:** DRM-protected streams (Netflix, Disney+, Spotify… Widevine/FairPlay/PlayReady, SAMPLE-AES). These are detected and labelled *Protected*. DASH (`.mpd`) streams are listed, with a *Copy link* / *Copy yt-dlp command* action. YouTube uses its own protected streaming format, so use yt-dlp for it.
 
@@ -68,7 +73,7 @@ src/
   content/content.js   DOM scan, gallery image scan, floating button, in-page panel host
   content/extract.js   finds the full-size picture on a viewer page (shared with background)
   popup/               toolbar popup (also used as the in-page panel)
-  manager/             download manager window + HLS engine (hls-job.js) + Referer fallback (file-job.js)
+  manager/             download manager window: HLS engine, Referer fallback, picture ZIP/folder jobs (zip.js)
   options/ welcome/    settings and onboarding pages
   shared/              theme, skins, icons, HLS parser, media helpers, settings
 scripts/               build, icon rendering, Firefox signing

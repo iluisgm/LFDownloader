@@ -104,12 +104,41 @@ try {
     if (brec && brec.status !== 'downloading') break;
   }
   check(brec?.status === 'completed' && brec.done === 10, `Firefox: images saved ${brec?.done}/${brec?.total} (failed ${brec?.failed}${brec?.error ? `, ${brec.error}` : ''})`);
+  // One ZIP instead of a save dialog per picture.
+  const z = await send({ type: 'images:download', tabId: galTab, ids: [], mode: 'zip' });
+  let zrec;
+  for (let i = 0; i < 40; i++) {
+    await sleep(500);
+    zrec = (await mgr.evaluate(async () => (await browser.storage.local.get('downloads')).downloads || [])).find((r) => r.id === z?.data?.id);
+    if (zrec && !['queued', 'downloading', 'saving'].includes(zrec.status)) break;
+  }
+  check(zrec?.status === 'completed' && zrec.done === 10, `Firefox: ZIP of 10 pictures → ${zrec?.status}${zrec?.error ? ` (${zrec.error})` : ''}`);
+
+  // Magic select: box around the first three photos.
+  await gal.bringToFront();
+  await send({ type: 'magic:start', tabId: galTab });
+  await sleep(600);
+  const b = await gal.evaluate(() => [...document.querySelectorAll('.grid img')].slice(0, 3).map((i) => { const r = i.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; }));
+  await gal.mouse.move(b[0][0] - 10, b[0][1] - 10);
+  await gal.mouse.down();
+  await gal.mouse.move(b[2][2] + 6, b[2][3] + 6, { steps: 6 });
+  await gal.mouse.up();
+  let ms;
+  for (let i = 0; i < 30; i++) {
+    await sleep(400);
+    ms = (await mgr.evaluate((id) => browser.storage.session.get(`imgscan:${id}`), galTab))[`imgscan:${galTab}`];
+    if (ms?.scope === 'selection' && ms.state === 'done') break;
+  }
+  const picked = ((await send({ type: 'media:list', tabId: galTab }))?.data || []).filter((i) => i.kind === 'image').map((i) => i.url.split('/').pop()).sort();
+  check(picked.join() === 'photo1.jpg,photo2.jpg,photo3.jpg', `Firefox: magic select → ${picked.join(', ')}`);
+
   recs = recs.filter((r) => r.type !== 'batch');
 
   const files = [];
   const walk = (d) => { for (const f of readdirSync(d)) { const p = join(d, f); statSync(p).isDirectory() ? walk(p) : files.push(p); } };
   walk(dl);
   const jpgs = files.filter((x) => x.endsWith('.jpg'));
+  files.splice(0, files.length, ...files.filter((x) => !x.endsWith('.zip')));
   check(jpgs.length === 10, `Firefox: ${jpgs.length} images on disk`);
   for (const f of files.filter((x) => !x.endsWith('.part') && !x.endsWith('.jpg'))) {
     let dur = 0;

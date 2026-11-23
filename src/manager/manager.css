@@ -143,3 +143,5 @@ body { overflow: hidden; }
 }
 .add-result .q[aria-checked="true"] { background: var(--grad); color: var(--on-accent); border-color: transparent; }
 .add-result .err { color: var(--bad); display: flex; gap: 8px; align-items: center; }
+
+.row .ops .btn-primary { height: 30px; }

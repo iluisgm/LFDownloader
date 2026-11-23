@@ -225,21 +225,44 @@ async function pumpBatch(rec) {
   return false;
 }
 
+/** File names for a set of images (unique, original names where possible). */
+function planImages(images) {
+  const used = new Set();
+  return images.map((img, i) => {
+    let ext = extOf(img.url);
+    if (!IMAGE_EXT.includes(ext)) ext = IMAGE_EXT.includes(img.format) ? img.format : 'jpg';
+    if (ext === 'jfif' || ext === 'jpeg') ext = 'jpg';
+    const base = sanitizeFilename(nameFromUrl(img.url) || `image-${i + 1}`, 100);
+    let name = `${base}.${ext}`;
+    for (let n = 2; used.has(name.toLowerCase()); n++) name = `${base} (${n}).${ext}`;
+    used.add(name.toLowerCase());
+    return { url: img.url, name };
+  });
+}
+
+/**
+ * Save images as one ZIP, or into a folder the user picks once, through the
+ * manager window, so the browser doesn't ask "Save as" for every picture.
+ */
+export async function startImageJob(images, { title, pageUrl, mode }) {
+  const settings = await getSettings();
+  const name = sanitizeFilename(cleanTitle(title) || 'Images', 80);
+  const dir = sanitizeFolder(settings.folder);
+  const rec = await records.add({
+    id: uid(), type: 'imgjob', kind: 'image', mode, status: mode === 'folder' ? 'needs-folder' : 'queued',
+    title: cleanTitle(title) || 'Images', filename: `${dir ? `${dir}/` : ''}${name}.zip`, folderName: name,
+    url: pageUrl, pageUrl, format: mode === 'zip' ? 'ZIP' : 'IMAGES', quality: '', size: 0, createdAt: Date.now(),
+    total: images.length, done: 0, failed: 0, images: planImages(images),
+  });
+  await ensureManager({ focus: mode === 'folder' });
+  return { id: rec.id, total: images.length, folder: mode === 'zip' ? rec.filename : name, mode };
+}
+
 /** Download a set of images into "<folder>/<page title>/". */
 export async function startImageBatch(images, { title, pageUrl }) {
   const settings = await getSettings();
   const folder = [sanitizeFolder(settings.folder), sanitizeFilename(cleanTitle(title) || 'Images', 80)].filter(Boolean).join('/');
-  const used = new Set();
-  const pending = images.map((img, i) => {
-    let ext = extOf(img.url);
-    if (!IMAGE_EXT.includes(ext)) ext = IMAGE_EXT.includes(img.format) ? img.format : 'jpg';
-    if (ext === 'jfif' || ext === 'jpeg') ext = 'jpg';
-    let base = sanitizeFilename(nameFromUrl(img.url) || `image-${i + 1}`, 100);
-    let name = `${base}.${ext}`;
-    for (let n = 2; used.has(name.toLowerCase()); n++) name = `${base} (${n}).${ext}`;
-    used.add(name.toLowerCase());
-    return { url: img.url, filename: `${folder}/${name}` };
-  });
+  const pending = planImages(images).map((p) => ({ url: p.url, filename: `${folder}/${p.name}` }));
   const ruleIds = await addHeaderRules(images.map((i) => i.url).slice(0, 40), pageUrl);
   return mutate(async (list) => {
     const rec = {
