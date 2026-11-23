@@ -110,6 +110,10 @@ function bindChrome() {
   document.addEventListener('click', (e) => {
     if (!e.target.closest('.menu, [data-act="more"]')) closeMenus();
   });
+  // A floating menu would drift away from its card, so close it on scroll/resize.
+  document.addEventListener('scroll', closeMenus, true);
+  addEventListener('resize', closeMenus);
+  addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenus(); });
 }
 
 function setFilter(f, draw = true) {
@@ -198,6 +202,7 @@ function render() {
     html.push(`<div class="group-label">Earlier in this tab · ${earlier.length}<button data-act="toggle-earlier">${state.showEarlier ? 'Hide' : 'Show'}</button></div>`);
     if (state.showEarlier || !current.length) html.push(...earlier.map(cardHtml));
   }
+  closeMenus();
   list.innerHTML = html.join('');
   list.scrollTop = scroll;
   bindCards();
@@ -331,7 +336,7 @@ async function act(action, item, btn, card) {
       await navigator.clipboard.writeText(item.kind === 'stream' && item.format !== 'dash' ? item.url : v?.url || item.url);
       return toast('Link copied');
     }
-    case 'more': return openMenu(item, card);
+    case 'more': return openMenu(item, card, btn);
   }
 }
 
@@ -366,21 +371,26 @@ async function download(item, btn) {
 
 function closeMenus() {
   for (const m of $$('.menu')) m.remove();
+  for (const b of $$('[data-act="more"].active')) b.classList.remove('active');
 }
 
-function openMenu(item, card) {
-  const wasOpen = card.querySelector('.menu');
+function openMenu(item, card, btn) {
+  const wasOpen = $(`.menu[data-for="${CSS.escape(item.id)}"]`);
   closeMenus();
   if (wasOpen) return;
   const v = selectedVariant(item);
   const menu = document.createElement('div');
   menu.className = 'menu';
+  menu.dataset.for = item.id;
   menu.innerHTML = `
     <button data-m="open">${icon('external', 15)}Open in new tab</button>
     ${item.kind === 'stream' && v && v.url !== item.url ? `<button data-m="copy-variant">${icon('link', 15)}Copy ${esc(v.label)} playlist</button>` : ''}
     <button data-m="ytdlp">${icon('copy', 15)}Copy yt-dlp command</button>
     <button data-m="remove" class="danger">${icon('trash', 15)}Remove from list</button>`;
-  card.append(menu);
+  // Float above every card (cards are separate layers, and the list clips its children).
+  document.body.append(menu);
+  placeMenu(menu, btn || card);
+  btn?.classList.add('active');
   menu.onclick = async (e) => {
     const m = e.target.closest('[data-m]')?.dataset.m;
     closeMenus();
@@ -394,6 +404,21 @@ function openMenu(item, card) {
     }
     if (m === 'remove') await call('media:remove', { tabId: state.tabId, id: item.id });
   };
+}
+
+/** Put a floating menu under its button, or above it when there is no room below. */
+function placeMenu(menu, anchor) {
+  const r = anchor.getBoundingClientRect();
+  const m = menu.getBoundingClientRect();
+  const gap = 6;
+  const vw = document.documentElement.clientWidth;
+  const vh = document.documentElement.clientHeight;
+  const below = vh - r.bottom - gap;
+  const up = below < m.height + 8 && r.top - gap > below;
+  const top = up ? Math.max(8, r.top - gap - m.height) : Math.min(r.bottom + gap, vh - m.height - 8);
+  const left = Math.min(Math.max(8, r.right - m.width), vw - m.width - 8);
+  Object.assign(menu.style, { top: `${top}px`, left: `${left}px` });
+  menu.classList.toggle('up', up);
 }
 
 async function renderActivity(list) {

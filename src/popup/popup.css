@@ -123,11 +123,14 @@ body.panel .app {
 .btn.is-done { background: var(--ok); box-shadow: 0 6px 20px -6px rgba(52,211,153,.6); }
 
 .menu {
-  position: absolute; right: 10px; top: calc(100% - 8px); z-index: 10; min-width: 190px; padding: 5px;
+  position: fixed; top: 0; left: 0; z-index: 50; min-width: 190px; padding: 5px;
   background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: var(--shadow-lg);
   animation: menu-in .18s var(--ease);
 }
 @keyframes menu-in { from { opacity: 0; transform: translateY(-4px) scale(.98); } }
+.menu.up { animation-name: menu-up; }
+@keyframes menu-up { from { opacity: 0; transform: translateY(4px) scale(.98); } }
+[data-act="more"].active { background: var(--hover); color: var(--text); }
 .menu button {
   width: 100%; display: flex; align-items: center; gap: 9px; height: 32px; padding: 0 10px;
   border-radius: 8px; font-size: 12.5px; color: var(--text-2); text-align: left;
