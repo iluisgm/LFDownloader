@@ -5,3 +5,4 @@ dist/
 test/fixtures/media/
 test/out/
 test/out-firefox/
+native/out/

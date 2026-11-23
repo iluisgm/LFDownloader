@@ -264,3 +264,6 @@ body.panel .app {
 .mode-menu small { display: block; font-size: 11px; color: var(--text-3); line-height: 1.35; margin-top: 1px; }
 .mode-menu .ck { color: var(--accent-2); opacity: 0; }
 .mode-menu [aria-checked="true"] .ck { opacity: 1; }
+
+.actions .note-wait { display: flex; align-items: center; gap: 7px; color: var(--text-3); }
+.actions .note-wait .spinner { width: 12px; height: 12px; border-width: 2px; }

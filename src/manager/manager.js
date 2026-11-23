@@ -6,10 +6,11 @@ import { formatBytes, formatDuration, formatSpeed, formatBitrate, hostOf } from 
 import { HlsJob } from './hls-job.js';
 import { FileJob } from './file-job.js';
 import { ImageJob } from './image-job.js';
+import { YtdlpJob } from './ytdlp-job.js';
 
 const MAX_PARALLEL_STREAMS = 2;
 const ACTIVE = ['queued', 'downloading', 'saving', 'needs-folder'];
-const JOB_TYPES = ['stream', 'fetch', 'imgjob'];
+const JOB_TYPES = ['stream', 'fetch', 'imgjob', 'ytdlp'];
 
 const state = {
   records: [],
@@ -86,6 +87,7 @@ async function startJob(rec) {
     return;
   }
   const job = rec.type === 'fetch' ? new FileJob(rec)
+    : rec.type === 'ytdlp' ? new YtdlpJob(rec)
     : rec.type === 'imgjob' ? new ImageJob(rec, { dir: state.dirs.get(rec.id) })
     : new HlsJob(rec, { concurrency: state.settings.segmentConcurrency });
   state.jobs.set(rec.id, job);
@@ -97,6 +99,15 @@ async function startJob(rec) {
     const results = await job.run();
     job.stats.phase = 'Saving';
     updateActiveRow(rec.id);
+    if (rec.type === 'ytdlp') {
+      // yt-dlp already wrote the file into the Downloads folder.
+      await call('records:update', {
+        id: rec.id,
+        patch: { status: 'completed', finishedAt: Date.now(), size: results.size, savedPath: results.path, progress: 1 },
+      });
+      call('records:notify', { id: rec.id });
+      return;
+    }
     if (rec.type === 'imgjob' && rec.mode === 'folder') {
       const s = job.stats;
       await call('records:update', {
@@ -258,6 +269,9 @@ function dayGroup(ts) {
 
 function tile(r, stateBadge = '') {
   const ico = r.kind === 'audio' ? 'music' : r.kind === 'image' ? 'images' : 'film';
+  if (r.poster && r.type === 'ytdlp') {
+    return `<div class="tile has-img"><img src="${esc(r.poster)}" alt="" referrerpolicy="no-referrer" loading="lazy">${stateBadge}</div>`;
+  }
   return `<div class="tile">${icon(ico, 20)}${stateBadge}</div>`;
 }
 
@@ -274,7 +288,7 @@ function activeRow(r) {
   const ops = [];
   if (r.status === 'needs-folder') ops.push(`<button class="btn btn-primary btn-sm" data-op="pick">${icon('folder', 14)}Choose folder…</button>`);
   if (isStream && job?.stats.live) ops.push(`<button class="btn btn-soft btn-sm" data-op="stop">${icon('stop', 13)}Stop &amp; save</button>`);
-  if (!queued && r.type !== 'batch') ops.push(`<button class="icon-btn" data-op="pause" title="Pause">${icon('pause', 17)}</button>`);
+  if (!queued && r.type !== 'batch' && r.type !== 'ytdlp') ops.push(`<button class="icon-btn" data-op="pause" title="Pause">${icon('pause', 17)}</button>`);
   ops.push(`<button class="icon-btn" data-op="cancel" title="Cancel">${icon('x', 17)}</button>`);
   return `<div class="row active" data-id="${r.id}" data-kind="${r.kind}">
     ${tile(r)}
@@ -319,7 +333,7 @@ function updateActiveRow(id) {
     const eta = !live && s.speed && avg ? ((s.total - s.done) * avg) / s.speed : 0;
     set('eta', eta > 1 ? `· ${formatDuration(eta)} left` : '');
     set('pct', live ? '' : `${Math.floor(pct * 100)}%`);
-    bar.classList.toggle('indeterminate', live || s.phase === 'Preparing' || s.phase === 'Saving');
+    bar.classList.toggle('indeterminate', live || s.busy || s.phase === 'Preparing' || s.phase === 'Saving');
     fill.style.width = `${pct * 100}%`;
     const pauseBtn = row.querySelector('[data-op="pause"], [data-op="resume"]');
     if (pauseBtn) {
@@ -383,7 +397,7 @@ function doneRow(r) {
 
   const ops = r.type === 'batch'
     ? (r.downloadId != null && r.done ? `<button class="btn btn-soft btn-sm" data-op="show">${icon('folder', 13)}Show folder</button>` : '')
-    : ok && r.downloadId != null
+    : ok && (r.downloadId != null || (r.type === 'ytdlp' && r.savedPath))
       ? `<button class="btn btn-soft btn-sm" data-op="open">${icon('play', 13)}Open</button>
          <button class="icon-btn" data-op="show" title="Show in folder">${icon('folder', 17)}</button>`
       : !ok ? `<button class="btn btn-soft btn-sm" data-op="retry">${icon('refresh', 13)}Retry</button>` : '';
@@ -477,10 +491,12 @@ async function onRowClick(e) {
         else await call('records:update', { id, patch: { status: 'canceled' } });
         break;
       case 'open':
-        await api.downloads.open(r.downloadId).catch(() => toast('The file was moved or deleted', { error: true }));
+        if (r.type === 'ytdlp') await call('helper:open', { path: r.savedPath });
+        else await api.downloads.open(r.downloadId).catch(() => toast('The file was moved or deleted', { error: true }));
         break;
       case 'show':
-        api.downloads.show(r.downloadId);
+        if (r.type === 'ytdlp') await call('helper:open', { path: r.savedPath, reveal: true });
+        else api.downloads.show(r.downloadId);
         break;
       case 'retry':
         await call('retry', { id });

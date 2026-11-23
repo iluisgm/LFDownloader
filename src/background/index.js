@@ -11,6 +11,8 @@ import '../content/extract.js'; // defines globalThis.LFDExtract
 import { addHeaderRules, removeHeaderRules } from './headers.js';
 import { createMenus, handleMenuClicks } from './menus.js';
 import { applySkin } from './skin.js';
+import { youtubeId, youtubeItem } from '../shared/sites.js';
+import { nativeRequest, helperStatus, variantsFromInfo, defaultVariant } from './native.js';
 
 let settings = { ...DEFAULT_SETTINGS };
 getSettings().then((s) => { settings = s; applySkin(s); });
@@ -64,6 +66,80 @@ api.webRequest.onBeforeRequest.addListener((d) => {
   // A new top-level page: start a fresh list for this tab.
   if (d.type === 'main_frame' && d.tabId >= 0) store.clearTab(d.tabId);
 }, { urls: ['<all_urls>'], types: ['main_frame'] });
+
+// ───────────────────────── YouTube (through the yt-dlp helper) ─────────────────────────
+// YouTube streams in scrambled pieces, so nothing useful shows up in the
+// network traffic. Instead, every YouTube video page (or embedded player) adds
+// one card, and the helper reads the real qualities when the popup opens.
+
+async function noteYoutube(tabId, videoId, { pageUrl, title = '' }) {
+  if (tabId < 0 || !videoId || !allowed('video')) return;
+  const item = await store.addItem(tabId, youtubeItem(videoId, { pageUrl, title }));
+  // Keep the newest page title until the helper supplies the real one.
+  if (item && !item.info && title && item.title !== title) {
+    await store.patchItems(tabId, (items) => {
+      const it = items.find((i) => i.key === item.key);
+      if (!it || it.info) return false;
+      it.title = title;
+      return true;
+    });
+  }
+}
+
+// YouTube is a single-page app: moving to another video only changes the URL.
+api.tabs.onUpdated.addListener((tabId, change, tab) => {
+  if (!change.url && !change.title && change.status !== 'complete') return;
+  const id = youtubeId(tab.url || '');
+  if (!id) return;
+  // Right after an in-page navigation the title still belongs to the previous video.
+  const title = change.url && !change.title ? '' : tab.title || '';
+  noteYoutube(tabId, id, { pageUrl: tab.url, title }).catch((e) => console.warn('[LFD] youtube', e));
+});
+
+// YouTube players embedded in other sites.
+api.webRequest.onBeforeRequest.addListener((d) => {
+  const id = youtubeId(d.url);
+  if (!id || d.tabId < 0) return;
+  tabInfo(d.tabId).then((info) => noteYoutube(d.tabId, id, { pageUrl: info.pageUrl, title: '' })).catch(() => {});
+}, { urls: ['*://*.youtube.com/embed/*', '*://*.youtube-nocookie.com/embed/*'], types: ['sub_frame'] });
+
+const infoFlights = new Map(); // video -> Promise of the helper's summary
+
+/** Ask the helper for an item's qualities (cached per video for this browser session). */
+async function loadSiteInfo(tabId, id) {
+  const item = await store.getItem(tabId, id);
+  if (!item) throw new Error('This video is no longer in the list. Reload the page.');
+  if (item.info === 'ready') return item;
+  const set = (patch) => store.patchItems(tabId, (items) => {
+    const it = items.find((i) => i.id === id);
+    if (!it) return false;
+    Object.assign(it, patch);
+    return true;
+  });
+  const cacheKey = `siteinfo:${item.videoId || item.url}`;
+  let info = (await api.storage.session.get(cacheKey))[cacheKey];
+  if (!info) {
+    await set({ info: 'loading', infoError: '' });
+    if (!infoFlights.has(cacheKey)) {
+      infoFlights.set(cacheKey, nativeRequest('info', { url: item.url }).finally(() => setTimeout(() => infoFlights.delete(cacheKey), 1000)));
+    }
+    try {
+      info = await infoFlights.get(cacheKey);
+      await api.storage.session.set({ [cacheKey]: info });
+    } catch (e) {
+      const missing = e.code === 'HELPER_MISSING';
+      if (missing) await api.storage.session.remove('helperStatus');
+      await set({ info: missing ? 'missing' : 'error', infoError: missing ? '' : e.message });
+      return null;
+    }
+  }
+  const variants = variantsFromInfo(info);
+  await set({
+    info: 'ready', infoError: '', title: info.title || item.title, uploader: info.uploader, duration: info.duration || item.duration,
+    live: info.live, upcoming: info.upcoming, variants, defaultVariant: defaultVariant(variants)?.id,
+  });
+  return store.getItem(tabId, id);
+}
 
 api.webRequest.onHeadersReceived.addListener((d) => {
   handleResponse(d).catch((e) => console.warn('[LFD] sniff', e));
@@ -258,6 +334,15 @@ const handlers = {
     const variant = item.variants?.find((v) => v.id === variantId);
     return startDownload(item, variant, { tabId, title });
   },
+  async 'site:info'({ tabId, id }) {
+    return loadSiteInfo(tabId, id);
+  },
+  async 'helper:status'({ fresh } = {}) {
+    return helperStatus({ fresh });
+  },
+  async 'helper:open'({ path, reveal }) {
+    return nativeRequest('open', { path, reveal });
+  },
   async 'media:remove'({ tabId, id }) {
     return store.removeItem(tabId, id);
   },
@@ -385,7 +470,7 @@ const handlers = {
       await records.update(id, { status: rec.mode === 'folder' ? 'needs-folder' : 'queued', error: '', done: 0, failed: 0 });
       return ensureManager({ focus: rec.mode === 'folder' });
     }
-    if (rec.type === 'stream' || rec.type === 'fetch') {
+    if (rec.type === 'stream' || rec.type === 'fetch' || rec.type === 'ytdlp') {
       await records.update(id, { status: 'queued', error: '', progress: 0 });
       return ensureManager({ focus: false });
     }

@@ -142,6 +142,28 @@ export async function startDownload(item, variant, { tabId, title: chosenTitle }
 
   if (item.drm) throw new Error('This stream is DRM-protected and cannot be saved.');
 
+  if (item.source === 'ytdlp') {
+    // Sites like YouTube: the helper runs yt-dlp, which saves straight to the Downloads folder.
+    const v = variant || item.variants?.find((x) => x.id === item.defaultVariant) || item.variants?.[0];
+    if (!v) throw new Error('Still reading the qualities. Try again in a moment.');
+    if (item.live || item.upcoming) throw new Error('Live streams can be downloaded once they have ended.');
+    const ext = v.container || 'mp4';
+    const q = v.audioOnly ? 'audio' : v.label;
+    const filename = buildFilename({ template: settings.filenameTemplate, title, quality: q, url: item.url, ext, folder: settings.folder });
+    const rec = await records.add({
+      id: uid(), type: 'ytdlp', status: 'queued', title: title || filename, filename,
+      url: item.url, pageUrl: item.pageUrl, kind: v.audioOnly ? 'audio' : 'video', site: item.site || '',
+      format: ext.toUpperCase(), quality: v.audioOnly ? '' : v.label, size: v.size || 0, duration: item.duration || 0,
+      poster: item.poster || '', createdAt: Date.now(),
+      job: {
+        url: item.url, height: v.height || 0, audioOnly: !!v.audioOnly, audioFormat: v.audioFormat || '',
+        base: filename.split('/').pop().replace(/\.[^.]+$/, ''), folder: settings.folder,
+      },
+    });
+    await ensureManager({ focus: false });
+    return rec;
+  }
+
   if (item.kind !== 'stream') {
     const filename = buildFilename({
       template: settings.filenameTemplate, title, quality, url: item.url, ext: fileExt(item), folder: settings.folder,

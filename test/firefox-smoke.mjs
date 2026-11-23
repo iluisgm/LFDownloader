@@ -51,6 +51,22 @@ try {
   console.log('  extension page:', mgr.url());
   const send = (msg) => mgr.evaluate((m) => browser.runtime.sendMessage(m), msg);
 
+  // The yt-dlp helper (registered by `npm run helper:install`) answers Firefox too.
+  const helper = (await send({ type: 'helper:status', fresh: true }))?.data;
+  check(helper?.installed && !!helper.ytdlp, `Firefox reaches the yt-dlp helper (${helper?.installed ? `yt-dlp ${helper.ytdlp}` : helper?.error || 'not installed'})`);
+  const yt = await mgr.evaluate(() => browser.runtime.sendNativeMessage('com.lfdownloader.helper', { id: 2, type: 'info', url: 'https://www.youtube.com/watch?v=jNQXAC9IVRw' }));
+  check(yt?.ok && yt.data.qualities.length > 0, `Firefox: yt-dlp read a YouTube video (${yt?.ok ? yt.data.title : yt?.error})`);
+  const ytPage = await browser.newPage();
+  await ytPage.goto('https://www.youtube.com/watch?v=jNQXAC9IVRw&t=5s', { waitUntil: 'domcontentloaded' }).catch(() => {});
+  let ytItem;
+  for (let i = 0; i < 20 && !ytItem; i++) {
+    await sleep(500);
+    const ytTab = (await mgr.evaluate(() => browser.tabs.query({ url: '*://*.youtube.com/*' })))[0]?.id;
+    ytItem = ytTab != null && ((await send({ type: 'media:list', tabId: ytTab }))?.data || []).find((x) => x.key === 'yt:jNQXAC9IVRw');
+  }
+  check(!!ytItem, 'Firefox: YouTube watch page gets a YouTube card');
+  await ytPage.close();
+
   const tabs = await mgr.evaluate(() => browser.tabs.query({ url: 'http://localhost/*' }));
   const tabId = tabs[0]?.id;
   const list = (await send({ type: 'media:list', tabId }))?.data || [];

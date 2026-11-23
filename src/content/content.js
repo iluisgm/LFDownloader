@@ -407,7 +407,10 @@
     e.preventDefault();
     e.stopPropagation();
     const src = current?.currentSrc || current?.src || '';
-    send('panel:open', { focus: /^https?:/.test(src) ? src : '' });
+    // YouTube plays from a blob: address; point at the page's YouTube card instead.
+    const yt = /(^|\.)youtube(-nocookie)?\.com$/.test(location.hostname)
+      && (location.search.match(/[?&]v=([\w-]{11})/) || location.pathname.match(/^\/(?:shorts|embed|live)\/([\w-]{11})/) || [])[1];
+    send('panel:open', { focus: /^https?:/.test(src) ? src : yt ? `yt:${yt}` : '' });
   }
 
   async function hideForSite(e) {

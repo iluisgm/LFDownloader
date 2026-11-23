@@ -91,6 +91,30 @@
       </div>
     </section>
 
+    <section class="group" id="helper">
+      <h2>YouTube &amp; other sites</h2>
+      <div class="card">
+        <div class="field">
+          <div class="label"><b>yt-dlp helper</b><small>YouTube doesn’t send its videos as normal files, so LFDownloader hands those pages to <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noreferrer">yt-dlp</a>, a free tool on your computer. Files go straight to your Downloads folder.</small></div>
+          <div class="helper-state" id="helper-state"><span class="spinner"></span>Checking…</div>
+        </div>
+        <div class="field col" id="helper-setup" hidden>
+          <ol class="steps">
+            <li><span><b>Install yt-dlp and ffmpeg</b> (once). In PowerShell:</span>
+              <div class="cmd"><code id="cmd-tools">winget install yt-dlp.yt-dlp Gyan.FFmpeg</code><button class="icon-btn sm" data-copy="cmd-tools" title="Copy"><i data-icon="copy" data-size="15"></i></button></div></li>
+            <li><span><b>Connect it to LFDownloader.</b> In the LFDownloader folder:</span>
+              <div class="cmd"><code id="cmd-install"></code><button class="icon-btn sm" data-copy="cmd-install" title="Copy"><i data-icon="copy" data-size="15"></i></button></div></li>
+            <li><span><b>Reload the extension</b>, then check again.</span></li>
+          </ol>
+          <div><button class="btn btn-primary" id="helper-check"><i data-icon="refresh" data-size="15"></i>Check again</button></div>
+        </div>
+        <div class="field" id="helper-update" hidden>
+          <div class="label"><b>Keep yt-dlp up to date</b><small>Sites change often. If downloads start failing, update yt-dlp: <code id="cmd-update"></code></small></div>
+          <button class="btn btn-soft" id="helper-recheck"><i data-icon="refresh" data-size="15"></i>Check</button>
+        </div>
+      </div>
+    </section>
+
     <section class="group">
       <h2>On web pages</h2>
       <div class="card">

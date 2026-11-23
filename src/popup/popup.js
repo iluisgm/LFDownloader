@@ -3,6 +3,7 @@ import { icon, LOGO } from '../shared/icons.js';
 import { $, $$, esc, toast, hydrateIcons } from '../shared/ui.js';
 import { getSettings, saveSettings, applyTheme, onSettingsChanged } from '../shared/settings.js';
 import { formatBytes, formatDuration, formatBitrate, hostOf, cleanTitle } from '../shared/media.js';
+import { youtubeId } from '../shared/sites.js';
 
 const params = new URLSearchParams(location.search);
 const MODE = params.get('mode') === 'panel' ? 'panel' : 'popup';
@@ -20,6 +21,7 @@ const state = {
   imgScan: null, // { state, done, total, found }
   showEarlier: false,
   focusDone: false,
+  infoAsked: new Set(), // site items whose qualities were requested from the helper
 };
 
 // ───────────────────────── boot ─────────────────────────
@@ -165,6 +167,8 @@ function displayName(item) {
 
 function isCurrent(item) {
   if (!state.tab?.url || !item.pageUrl) return true;
+  const here = youtubeId(state.tab.url);
+  if (item.videoId && here) return item.videoId === here;
   const strip = (u) => u.split('#')[0];
   return strip(item.pageUrl) === strip(state.tab.url);
 }
@@ -229,10 +233,11 @@ function rank(i) {
 function selectedVariant(item) {
   const vs = item.variants || [];
   const id = state.selected.get(item.id);
-  return vs.find((v) => v.id === id) || vs[0] || null;
+  return vs.find((v) => v.id === id) || vs.find((v) => v.id === item.defaultVariant) || vs[0] || null;
 }
 
 function estimate(item, v) {
+  if (item.source === 'ytdlp') return v?.size ? `≈ ${formatBytes(v.size)}` : '';
   if (!v || !item.duration) return '';
   const bps = v.bandwidth || 0;
   if (!bps) return '';
@@ -241,7 +246,8 @@ function estimate(item, v) {
 
 function cardHtml(item) {
   const name = displayName(item);
-  const format = item.kind === 'stream' ? (item.format === 'dash' ? 'DASH' : 'HLS') : (item.format || '').toUpperCase();
+  const site = item.source === 'ytdlp';
+  const format = site ? item.site || 'yt-dlp' : item.kind === 'stream' ? (item.format === 'dash' ? 'DASH' : 'HLS') : (item.format || '').toUpperCase();
   const kindIcon = item.kind === 'audio' ? 'music' : item.kind === 'stream' ? 'stream' : 'film';
   const v = selectedVariant(item);
   const dur = formatDuration(item.duration);
@@ -252,10 +258,10 @@ function cardHtml(item) {
   const bits = [];
   // A stream's own size is just the playlist text — meaningless to show.
   if (item.size && item.kind !== 'stream') bits.push(formatBytes(item.size));
-  const est = item.kind === 'stream' ? estimate(item, v) : '';
-  if (est) bits.push(`<span class="est">${est}</span>`);
+  const est = item.kind === 'stream' || site ? estimate(item, v) : '';
+  if (est || (site && item.info === 'ready')) bits.push(`<span class="est">${est}</span>`);
   if (!item.poster && dur) bits.push(dur);
-  bits.push(esc(hostOf(item.url)));
+  bits.push(esc(site && item.uploader ? item.uploader : hostOf(item.url)));
   meta.push(bits.join('<span class="sep"></span>'));
 
   const thumb = item.poster
@@ -264,10 +270,10 @@ function cardHtml(item) {
 
   let qualities = '';
   const variants = (item.variants || []).filter((x) => x.label);
-  if (item.kind === 'stream' && variants.length > 1) {
+  if ((item.kind === 'stream' || site) && variants.length > 1) {
     qualities = `<div class="qualities" role="radiogroup" aria-label="Quality">${variants.map((x) => {
-      const hd = x.height >= 2100 ? '4K' : x.height >= 1080 ? 'FHD' : x.height >= 720 ? 'HD' : '';
-      const sub = x.audioOnly ? (x.sub && x.sub !== 'Audio' ? x.sub : '') : x.bandwidth ? formatBitrate(x.bandwidth) : '';
+      const hd = x.height >= 2100 ? '4K' : x.height >= 1400 ? '2K' : x.height >= 1080 ? 'FHD' : x.height >= 720 ? 'HD' : '';
+      const sub = x.audioOnly ? (x.sub && x.sub !== 'Audio' ? x.sub : '') : x.bandwidth ? formatBitrate(x.bandwidth) : x.hdr ? 'HDR' : '';
       return `<button class="q" role="radio" data-variant="${x.id}" aria-checked="${x.id === v?.id}" title="${esc([x.label, x.codecs, x.audioName].filter(Boolean).join(' · '))}">
         ${x.audioOnly ? icon('music', 12) : ''}${esc(x.label)}${hd && !x.label.startsWith('4K') ? `<span class="hd">${hd}</span>` : ''}${sub ? `<small>${esc(sub)}</small>` : ''}
       </button>`;
@@ -276,7 +282,21 @@ function cardHtml(item) {
 
   let note = '';
   let primary = `<button class="btn btn-primary" data-act="download">${icon('download', 16)}<span>Download</span></button>`;
-  if (item.drm) {
+  if (site && item.info === 'missing') {
+    note = `<span class="note-warn">${icon('alert', 13)}Needs the free yt-dlp helper</span>`;
+    primary = `<button class="btn btn-primary" data-act="setup">${icon('settings', 15)}<span>Set up</span></button>`;
+  } else if (site && item.info === 'error') {
+    note = `<span class="note-warn" title="${esc(item.infoError)}">${icon('alert', 13)}${esc(item.infoError || 'yt-dlp could not read this video')}</span>`;
+    primary = `<button class="btn btn-soft" data-act="reinfo">${icon('refresh', 15)}Try again</button>`;
+  } else if (site && item.info !== 'ready') {
+    note = `<span class="note-wait"><span class="spinner"></span>Reading qualities…</span>`;
+    primary = `<button class="btn btn-primary" disabled>${icon('download', 16)}<span>Download</span></button>`;
+  } else if (site && (item.live || item.upcoming)) {
+    note = `<span class="note-warn">${icon('live', 13)}${item.upcoming ? 'Not started yet' : 'Live now'}: download it once it ends</span>`;
+    primary = `<button class="btn btn-soft" disabled>${icon('live', 15)}Live</button>`;
+  } else if (site) {
+    note = `${esc(v?.container?.toUpperCase() || '')} · via yt-dlp`;
+  } else if (item.drm) {
     note = `<span class="note-warn">${icon('lock', 13)}Protected by DRM</span>`;
     primary = `<button class="btn btn-soft" disabled>${icon('lock', 15)}Protected</button>`;
   } else if (item.format === 'dash') {
@@ -314,12 +334,18 @@ function bindCards() {
   for (const card of $$('.card')) {
     const item = state.items.find((i) => i.id === card.dataset.id);
     if (!item) continue;
+    if (item.source === 'ytdlp' && !item.info && !state.infoAsked.has(item.id)) {
+      // Read the real qualities now (the helper runs yt-dlp; takes a few seconds).
+      state.infoAsked.add(item.id);
+      call('site:info', { tabId: state.tabId, id: item.id }).catch(() => {});
+    }
     for (const q of $$('.q', card)) {
       q.onclick = () => {
         state.selected.set(item.id, q.dataset.variant);
         for (const x of $$('.q', card)) x.setAttribute('aria-checked', String(x === q));
         const est = $('.est', card);
         if (est) est.textContent = estimate(item, selectedVariant(item));
+        if (item.source === 'ytdlp') $('.actions .grow', card).textContent = `${selectedVariant(item)?.container?.toUpperCase() || ''} · via yt-dlp`;
       };
     }
     for (const b of $$('[data-act]', card)) b.onclick = (e) => act(b.dataset.act, item, b, card, e);
@@ -337,6 +363,10 @@ async function act(action, item, btn, card) {
       return toast('Link copied');
     }
     case 'more': return openMenu(item, card, btn);
+    case 'setup': return openHelperSetup();
+    case 'reinfo':
+      state.infoAsked.add(item.id);
+      return call('site:info', { tabId: state.tabId, id: item.id }).catch((e) => toast(e.message, { error: true }));
   }
 }
 
@@ -353,8 +383,9 @@ async function download(item, btn) {
     btn.querySelector('.spinner')?.remove();
     btn.classList.remove('is-busy');
     btn.classList.add('is-done');
-    if (label) label.textContent = item.kind === 'stream' ? 'Queued' : 'Saving';
-    toast(item.kind === 'stream' ? 'Added to the download manager' : 'Download started');
+    const managed = item.kind === 'stream' || item.source === 'ytdlp';
+    if (label) label.textContent = managed ? 'Queued' : 'Saving';
+    toast(managed ? 'Added to the download manager' : 'Download started');
     setTimeout(() => {
       btn.classList.remove('is-done');
       btn.disabled = false;
@@ -598,5 +629,11 @@ async function downloadImages() {
 /** Close this UI and let the user draw a box on the page. */
 async function startMagic() {
   await call('magic:start', { tabId: state.tabId });
+  if (MODE === 'popup') window.close();
+}
+
+/** Settings page, scrolled to the yt-dlp helper setup. */
+function openHelperSetup() {
+  api.tabs.create({ url: api.runtime.getURL('options/options.html#helper') });
   if (MODE === 'popup') window.close();
 }

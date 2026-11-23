@@ -145,3 +145,6 @@ body { overflow: hidden; }
 .add-result .err { color: var(--bad); display: flex; gap: 8px; align-items: center; }
 
 .row .ops .btn-primary { height: 30px; }
+
+.row .tile.has-img { background: #000; }
+.row .tile.has-img img { position: absolute; inset: 0; border-radius: inherit; width: 100%; height: 100%; object-fit: cover; }

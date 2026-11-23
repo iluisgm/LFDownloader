@@ -19,10 +19,47 @@ async function init() {
   $('#version').textContent = `v${api.runtime.getManifest().version}`;
   fill();
   bind();
+  bindHelper();
   onSettingsChanged((next) => { s = next; applyTheme(s); renderSites(); });
   matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => applyTheme(s));
   checkPermission();
   historyInfo();
+  checkHelper();
+  if (location.hash === '#helper') $('#helper').scrollIntoView({ block: 'start' });
+}
+
+/** Shows whether the yt-dlp helper answers, or how to set it up. */
+async function checkHelper(fresh = false) {
+  const box = $('#helper-state');
+  box.innerHTML = '<span class="spinner"></span>Checking…';
+  let st;
+  try {
+    const res = await api.runtime.sendMessage({ type: 'helper:status', fresh });
+    st = res?.data || {};
+  } catch {
+    st = {};
+  }
+  const ok = st.installed && st.ytdlp;
+  box.className = `helper-state ${ok ? 'ok' : 'bad'}`;
+  box.innerHTML = ok
+    ? `${icon('check', 14)}Connected · yt-dlp ${esc(st.ytdlp)}${st.ffmpeg ? ' · ffmpeg' : ' · <span class="warn">no ffmpeg</span>'}`
+    : st.installed ? `${icon('alert', 14)}Helper found, but ${esc(st.error || 'yt-dlp is missing')}` : `${icon('alert', 14)}Not set up`;
+  $('#helper-setup').hidden = !!ok;
+  $('#helper-update').hidden = !ok;
+  const firefox = !!st.firefox;
+  $('#cmd-install').textContent = firefox ? 'npm run helper:install' : `npm run helper:install -- --id ${st.extensionId || api.runtime.id}`;
+  $('#cmd-update').textContent = 'yt-dlp -U   (or: pip install -U yt-dlp)';
+}
+
+function bindHelper() {
+  for (const b of $$('[data-copy]')) {
+    b.onclick = async () => {
+      await navigator.clipboard.writeText($(`#${b.dataset.copy}`).textContent);
+      toast('Copied');
+    };
+  }
+  $('#helper-check').onclick = () => checkHelper(true);
+  $('#helper-recheck').onclick = () => checkHelper(true);
 }
 
 function fill() {
