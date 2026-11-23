@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Welcome · LFDownloader</title>
+  <link rel="icon" href="../assets/icons/icon-32.png">
+  <link rel="stylesheet" href="../shared/theme.css">
+  <style>
+    body {
+      min-height: 100vh; display: grid; place-items: center; padding: 40px 24px;
+      background:
+        radial-gradient(60% 50% at 20% 10%, rgba(139,108,255,.18), transparent 70%),
+        radial-gradient(50% 40% at 90% 20%, rgba(34,211,238,.12), transparent 70%),
+        var(--bg);
+    }
+    .wrap { max-width: 720px; text-align: center; }
+    .wrap > .logo { width: 84px; height: 84px; margin: 0 auto 26px; filter: drop-shadow(0 18px 40px rgba(110,100,255,.55)); animation: pop .7s var(--ease-spring) both; }
+    @keyframes pop { from { transform: scale(.6) rotate(-10deg); opacity: 0; } }
+    h1 { margin: 0; font: 800 40px/1.05 var(--font-display); letter-spacing: -.035em; }
+    h1 span { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .lead { margin: 14px auto 0; max-width: 520px; color: var(--text-2); font-size: 15px; line-height: 1.55; }
+    .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 38px 0 30px; text-align: left; }
+    .step { padding: 18px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-sm); animation: up .6s var(--ease) both; }
+    .step:nth-child(2) { animation-delay: .08s; } .step:nth-child(3) { animation-delay: .16s; }
+    @keyframes up { from { opacity: 0; transform: translateY(10px); } }
+    .step .n { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; background: var(--grad-soft); color: var(--accent-2); margin-bottom: 14px; border: 1px solid var(--line); }
+    .step > b { display: block; font-size: 14px; margin-bottom: 4px; }
+    .step p { margin: 0; color: var(--text-2); font-size: 12.5px; line-height: 1.5; }
+    .perm { margin: 0 auto 22px; max-width: 520px; padding: 16px 18px; border-radius: 16px; background: rgba(251,191,36,.08); border: 1px solid rgba(251,191,36,.2); color: var(--text); display: flex; gap: 14px; align-items: center; text-align: left; }
+    .perm .ico { color: var(--warn); }
+    .perm p { margin: 0; font-size: 13px; color: var(--text-2); flex: 1; }
+    .cta { display: flex; justify-content: center; gap: 10px; }
+    .tip { margin-top: 26px; color: var(--text-3); font-size: 12.5px; }
+    kbd { font: 600 11px var(--mono); padding: 2px 6px; border-radius: 5px; border: 1px solid var(--line-strong); color: var(--text-2); }
+    @media (max-width: 640px) { .steps { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <span id="logo"></span>
+    <h1>Welcome to <span>LFDownloader</span></h1>
+    <p class="lead">Videos, music and streams — caught automatically while you browse, saved in the quality you pick.</p>
+
+    <div class="steps">
+      <div class="step"><div class="n"><i data-icon="play" data-size="17"></i></div><b>Play anything</b><p>Open a page and start the video or song. LFDownloader listens to what the page loads.</p></div>
+      <div class="step"><div class="n"><i data-icon="sparkle" data-size="17"></i></div><b>Pick a quality</b><p>The toolbar badge shows what was found. Choose 1080p, 720p, audio only…</p></div>
+      <div class="step"><div class="n"><i data-icon="radar" data-size="17"></i></div><b>Right-click to scan</b><p>Right-click any video or page → <b>Scan page for media</b>, or use the Download button over videos.</p></div>
+    </div>
+
+    <div class="perm" id="perm" hidden>
+      <i data-icon="shield" data-size="22"></i>
+      <p><b>One more step.</b> Allow LFDownloader to read media requests on websites. Without this it can't see any videos.</p>
+      <button class="btn btn-primary" id="grant">Allow access</button>
+    </div>
+
+    <div class="cta">
+      <button class="btn btn-primary btn-lg" id="open-demo"><i data-icon="external" data-size="16"></i>Try it on a test video</button>
+      <button class="btn btn-soft btn-lg" id="open-settings"><i data-icon="settings" data-size="16"></i>Settings</button>
+    </div>
+    <p class="tip">Shortcuts: <kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>D</kbd> opens LFDownloader · <kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd> scans the page</p>
+  </main>
+  <script type="module" src="welcome.js"></script>
+</body>
+</html>

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Settings · LFDownloader</title>
+  <link rel="icon" href="../assets/icons/icon-32.png">
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <span id="logo"></span>
+      <div>
+        <h1>Settings</h1>
+        <p>Tune how LFDownloader finds and saves media. Changes save automatically.</p>
+      </div>
+      <span class="saved" id="saved"><i data-icon="check" data-size="14"></i>Saved</span>
+    </header>
+
+    <section class="group">
+      <h2>Appearance</h2>
+      <div class="card">
+        <div class="field">
+          <div class="label"><b>Theme</b><small>Follow your system or pick one.</small></div>
+          <div class="seg" id="theme" role="group">
+            <button data-v="system"><i data-icon="sparkle" data-size="14"></i>System</button>
+            <button data-v="dark"><i data-icon="moon" data-size="14"></i>Dark</button>
+            <button data-v="light"><i data-icon="sun" data-size="14"></i>Light</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="group">
+      <h2>Saving files</h2>
+      <div class="card">
+        <div class="field">
+          <div class="label"><b>Folder</b><small>Created inside your browser's Downloads folder. Leave empty to save there directly.</small></div>
+          <input class="input w" id="folder" placeholder="LFDownloader" spellcheck="false">
+        </div>
+        <div class="field">
+          <div class="label"><b>File name</b><small>Use <code>{title}</code> <code>{quality}</code> <code>{host}</code> <code>{date}</code>.</small></div>
+          <div class="w">
+            <input class="input" id="filenameTemplate" spellcheck="false">
+            <div class="preview" id="name-preview"></div>
+          </div>
+        </div>
+        <label class="field">
+          <div class="label"><b>Ask where to save each file</b><small>Shows the system "Save as" dialog for every download.</small></div>
+          <span class="switch"><input type="checkbox" id="askWhereToSave"><span></span></span>
+        </label>
+        <label class="field">
+          <div class="label"><b>Notify when a download finishes</b><small>A system notification when the file is on disk.</small></div>
+          <span class="switch"><input type="checkbox" id="notifyOnComplete"><span></span></span>
+        </label>
+      </div>
+    </section>
+
+    <section class="group">
+      <h2>Detection</h2>
+      <div class="card">
+        <label class="field">
+          <div class="label"><b>Videos</b><small>MP4, WebM, MKV, MOV and other video files.</small></div>
+          <span class="switch"><input type="checkbox" id="detectVideo"><span></span></span>
+        </label>
+        <label class="field">
+          <div class="label"><b>Music &amp; audio</b><small>MP3, M4A, WAV, FLAC, OGG, Opus…</small></div>
+          <span class="switch"><input type="checkbox" id="detectAudio"><span></span></span>
+        </label>
+        <label class="field">
+          <div class="label"><b>Streams</b><small>HLS (.m3u8) playlists with quality selection.</small></div>
+          <span class="switch"><input type="checkbox" id="detectStreams"><span></span></span>
+        </label>
+        <div class="field">
+          <div class="label"><b>Ignore files smaller than</b><small>Hides tiny sounds, previews and ad snippets.</small></div>
+          <div class="range w">
+            <input type="range" id="minSizeKB" min="0" max="5000" step="50">
+            <output id="minSizeKB-out"></output>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="group">
+      <h2>On web pages</h2>
+      <div class="card">
+        <label class="field">
+          <div class="label"><b>Floating download button</b><small>Shows a Download button when you hover over a video.</small></div>
+          <span class="switch"><input type="checkbox" id="floatingButton"><span></span></span>
+        </label>
+        <div class="field col">
+          <div class="label"><b>Button hidden on these sites</b><small>Hide it on a site with the × next to the button.</small></div>
+          <div class="sites" id="sites"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="group">
+      <h2>Performance</h2>
+      <div class="card">
+        <div class="field">
+          <div class="label"><b>Parallel connections per stream</b><small>More is faster, but some servers throttle or block aggressive clients.</small></div>
+          <div class="range w">
+            <input type="range" id="segmentConcurrency" min="1" max="16" step="1">
+            <output id="segmentConcurrency-out"></output>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="group">
+      <h2>Data</h2>
+      <div class="card">
+        <div class="field">
+          <div class="label"><b>Download history</b><small id="history-info">Files on disk are never touched.</small></div>
+          <button class="btn btn-soft btn-danger" id="clear-history"><i data-icon="trash" data-size="15"></i>Clear history</button>
+        </div>
+        <div class="field" id="perm-row" hidden>
+          <div class="label"><b>Website access</b><small>LFDownloader needs access to all sites to detect media.</small></div>
+          <button class="btn btn-primary" id="grant"><i data-icon="shield" data-size="15"></i>Grant access</button>
+        </div>
+      </div>
+    </section>
+
+    <footer class="foot">LFDownloader <span id="version"></span> · For personal use. Respect the rights of content owners.</footer>
+  </div>
+  <script type="module" src="options.js"></script>
+</body>
+</html>

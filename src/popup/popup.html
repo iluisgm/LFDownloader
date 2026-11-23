@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LFDownloader</title>
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="app" id="app">
+    <header class="top">
+      <div class="brand">
+        <span id="logo"></span>
+        <div class="brand-text">
+          <div class="brand-name">LFDownloader</div>
+          <div class="brand-sub" id="page-host">&nbsp;</div>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button class="icon-btn" id="btn-scan" title="Scan page again"><i data-icon="radar"></i></button>
+        <button class="icon-btn" id="btn-manager" title="Download manager"><i data-icon="list"></i></button>
+        <button class="icon-btn" id="btn-settings" title="Settings"><i data-icon="settings"></i></button>
+        <button class="icon-btn" id="btn-close" title="Close" hidden><i data-icon="x"></i></button>
+      </div>
+    </header>
+
+    <nav class="filters" id="filters" hidden>
+      <div class="seg" role="group" aria-label="Filter">
+        <button data-filter="all" aria-pressed="true">All <span class="count" data-count="all"></span></button>
+        <button data-filter="video" aria-pressed="false">Video <span class="count" data-count="video"></span></button>
+        <button data-filter="audio" aria-pressed="false">Audio <span class="count" data-count="audio"></span></button>
+        <button data-filter="stream" aria-pressed="false">Streams <span class="count" data-count="stream"></span></button>
+      </div>
+    </nav>
+
+    <main class="list" id="list" aria-live="polite"></main>
+
+    <section class="empty" id="empty" hidden>
+      <div class="radar" aria-hidden="true">
+        <span></span><span></span><span></span>
+        <div class="radar-core"><i data-icon="download" data-size="22"></i></div>
+      </div>
+      <h2>Nothing caught yet</h2>
+      <p>Play the video or song on this page — LFDownloader picks it up the moment it starts loading.</p>
+      <button class="btn btn-soft" id="btn-scan-empty"><i data-icon="radar" data-size="16"></i>Scan this page</button>
+    </section>
+
+    <section class="empty" id="restricted" hidden>
+      <div class="restricted-ico"><i data-icon="shield" data-size="26"></i></div>
+      <h2>This page can't be scanned</h2>
+      <p>Browsers don't let extensions look inside their own pages and web stores. Open a normal website to start catching media.</p>
+    </section>
+
+    <footer class="bottom">
+      <div class="activity" id="activity"><span class="dot"></span><span id="activity-text">No active downloads</span></div>
+      <button class="btn btn-ghost btn-sm" id="btn-manager-2">Downloads <i data-icon="chevron" data-size="14"></i></button>
+    </footer>
+  </div>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+{
+  "name": "lfdownloader",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Browser extension (Chrome + Firefox) that detects videos, music and streams and downloads them in the quality you choose.",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:chrome": "node scripts/build.mjs chrome",
+    "build:firefox": "node scripts/build.mjs firefox",
+    "watch": "node scripts/build.mjs --watch",
+    "icons": "node scripts/icons.mjs",
+    "lint:firefox": "web-ext lint --source-dir dist/firefox",
+    "run:firefox": "web-ext run --source-dir dist/firefox",
+    "package:firefox": "web-ext build --source-dir dist/firefox --artifacts-dir dist/packages --overwrite-dest",
+    "test:server": "node test/server.mjs",
+    "test:e2e": "node test/e2e.mjs"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^25.18.1",
+    "web-ext": "^10.8.0"
+  }
+}

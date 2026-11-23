@@ -1,0 +1,63 @@
+{
+  "manifest_version": 3,
+  "name": "LFDownloader",
+  "short_name": "LFDownloader",
+  "version": "0.1.0",
+  "description": "Catch videos, music and streams on any page and download them in the quality you choose.",
+  "icons": {
+    "16": "assets/icons/icon-16.png",
+    "32": "assets/icons/icon-32.png",
+    "48": "assets/icons/icon-48.png",
+    "128": "assets/icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "LFDownloader",
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "assets/icons/icon-16.png",
+      "32": "assets/icons/icon-32.png",
+      "48": "assets/icons/icon-48.png"
+    }
+  },
+  "background": "__BACKGROUND__",
+  "permissions": [
+    "webRequest",
+    "downloads",
+    "downloads.open",
+    "storage",
+    "unlimitedStorage",
+    "contextMenus",
+    "scripting",
+    "notifications",
+    "declarativeNetRequestWithHostAccess"
+  ],
+  "host_permissions": ["<all_urls>"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["popup/*", "shared/*", "assets/*"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": true
+  },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": { "default": "Alt+Shift+D" },
+      "description": "Open LFDownloader"
+    },
+    "scan-page": {
+      "suggested_key": { "default": "Alt+Shift+S" },
+      "description": "Scan this page for media"
+    }
+  }
+}
